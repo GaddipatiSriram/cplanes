@@ -1,14 +1,20 @@
 # Secrets — never commit
-**/forge-secret*.yaml
-**/layers-secret*.yaml
-**/*-repo-secret*.yaml
-**/*-secret-secrets-*.yaml
-# Cluster registration Secrets contain bearer tokens + CA certs (Phase 8 output)
+# Be EXPLICIT about which filenames are credential files; broad patterns
+# (e.g. **/*-secret-*.yaml) accidentally catch legitimate chart templates
+# like cluster-secret-store.yaml.
+**/forge-secret-sre.yaml
+**/forge-secret-devops.yaml
+**/layers-secret-sre.yaml
+**/layers-secret-devops.yaml
+**/cplanes-secret-sre.yaml
+**/cplanes-secret-devops.yaml
+**/storage-repo-secret.yaml
 **/cluster-secret.yaml
 **/argocd-cluster-*.yaml
-# Anything ending in -secret.yaml or -secret-*.yaml as defense in depth
-**/*-secret.yaml
-**/*-secret-*.yaml
+**/*-creds.yaml
+**/*-creds.yml
+
+# File-extension-based — keys, certs, kubeconfigs, env files
 **/*.pat
 **/*.pem
 **/*.key
