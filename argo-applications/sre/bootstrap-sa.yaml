@@ -1,0 +1,39 @@
+# Bootstrap — ServiceAccount + ClusterRoleBinding + long-lived token
+# on the TARGET cluster (mgmt-storage) so argocd-sre can manage it.
+#
+# Apply WITH the target cluster's kubeconfig:
+#   kubectl --context mgmt-storage apply -f bootstrap-sa.yaml
+#
+# Once applied, extract the token and CA from the Secret and put them in
+# the cluster registration Secret on OKD (see cluster-secret.yaml).
+#
+# Token Secret is the k8s >= 1.24 pattern — modern clusters no longer
+# auto-mint SA tokens; this long-lived Secret is the explicit opt-in.
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: argocd-manager
+  namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: argocd-manager
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - kind: ServiceAccount
+    name: argocd-manager
+    namespace: kube-system
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: argocd-manager-token
+  namespace: kube-system
+  annotations:
+    kubernetes.io/service-account.name: argocd-manager
+type: kubernetes.io/service-account-token

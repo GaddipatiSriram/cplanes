@@ -1,0 +1,24 @@
+apiVersion: v2
+name: metallb
+description: |
+  Forge umbrella chart wrapping the upstream metallb/metallb chart, plus a
+  per-cluster IPAddressPool + L2Advertisement rendered from values.
+
+  Pattern A ApplicationSet — installs on every workload-capable cluster
+  (tier In [mgmt, dev], role NotIn [storage]). The pool range comes from
+  the AppSet template based on the cluster name; see argo-applications/sre/forge/
+  metallb-appset.yaml.
+
+  Adoption note: mgmt-forge already runs MetalLB v0.14.8 from raw
+  manifests. This chart pins the same version + matches namespace +
+  pool/advertisement names so ServerSideApply takes ownership without
+  a teardown.
+
+type: application
+version: 0.1.0
+appVersion: "0.14.8"
+
+dependencies:
+  - name: metallb
+    version: 0.14.8
+    repository: https://metallb.github.io/metallb

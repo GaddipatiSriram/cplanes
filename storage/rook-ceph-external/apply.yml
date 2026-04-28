@@ -1,0 +1,206 @@
+---
+# Step 5 — Apply external Ceph resources on each consumer cluster.
+#
+# Wraps Rook's official import-external-cluster.sh. Per consumer:
+#   a. Tear down any half-installed rook-ceph-external state.
+#   b. Source the env file from Step 4, run the import bash script.
+#   c. Install rook-ceph Helm chart (operator + CSI in external mode).
+#   d. Apply external CephCluster CR.
+#   e. Verify with a scratch PVC round-trip.
+
+- name: Apply external Ceph CSI to consumer clusters
+  hosts: localhost
+  gather_facts: false
+  vars:
+    env_file: "{{ playbook_dir }}/generated/external-cluster.env"
+    import_script: "{{ playbook_dir }}/scripts/import-external-cluster.sh"
+    rook_chart_version: "v1.15.5"
+    consumer_ns: "rook-ceph-external"
+    targets:
+      - name: okd
+        kubeconfig: "/root/learning/okd/install/auth/kubeconfig"
+        context: ""
+      - name: mgmt-core
+        kubeconfig: "/root/cluster/kubeconfig-all.yaml"
+        context: "mgmt-core"
+  tasks:
+
+    - name: Build kubectl args per target
+      ansible.builtin.set_fact:
+        enriched_targets: >-
+          {{ targets | map('combine', {'kubectl_args': ''}) | list }}
+
+    - name: Fill kubectl_args per target
+      ansible.builtin.set_fact:
+        enriched_targets: >-
+          {{ enriched_targets[:loop_idx]
+             + [ enriched_targets[loop_idx]
+                 | combine({'kubectl_args':
+                   ('--kubeconfig=' + enriched_targets[loop_idx].kubeconfig
+                    + (' --context=' + enriched_targets[loop_idx].context if enriched_targets[loop_idx].context else '')) })
+               ]
+             + enriched_targets[loop_idx+1:] }}
+      loop: "{{ range(targets | length) | list }}"
+      loop_control:
+        loop_var: loop_idx
+
+    # --- (a) teardown previous state ---
+    - name: Uninstall previous rook-ceph Helm release
+      ansible.builtin.shell: |
+        helm uninstall rook-ceph --kubeconfig {{ item.kubeconfig }} {{ ('--kube-context ' + item.context) if item.context else '' }} --namespace {{ consumer_ns }} 2>&1 || true
+      loop: "{{ enriched_targets }}"
+      loop_control:
+        label: "{{ item.name }}"
+      changed_when: false
+
+    - name: Delete residual external CephCluster CR + strip finalizers
+      ansible.builtin.shell: |
+        kubectl {{ item.kubectl_args }} -n {{ consumer_ns }} delete cephcluster rook-ceph --ignore-not-found --wait=false 2>&1 || true
+        kubectl {{ item.kubectl_args }} -n {{ consumer_ns }} patch cephcluster rook-ceph --type=merge -p '{"metadata":{"finalizers":null}}' 2>/dev/null || true
+      loop: "{{ enriched_targets }}"
+      loop_control:
+        label: "{{ item.name }}"
+      changed_when: false
+
+    - name: Delete consumer namespace + force-finalize if stuck
+      ansible.builtin.shell: |
+        kubectl {{ item.kubectl_args }} delete namespace {{ consumer_ns }} --ignore-not-found --wait=false 2>&1 || true
+        for i in $(seq 1 20); do
+          kubectl {{ item.kubectl_args }} get ns {{ consumer_ns }} >/dev/null 2>&1 || exit 0
+          kubectl {{ item.kubectl_args }} get ns {{ consumer_ns }} -o json 2>/dev/null \
+            | jq '.spec.finalizers = []' \
+            | kubectl {{ item.kubectl_args }} replace --raw /api/v1/namespaces/{{ consumer_ns }}/finalize -f - 2>/dev/null || true
+          sleep 5
+        done
+        exit 1
+      loop: "{{ enriched_targets }}"
+      loop_control:
+        label: "{{ item.name }}"
+      changed_when: false
+
+    # --- (b) run Rook's official import script per consumer ---
+    - name: Run import-external-cluster.sh
+      ansible.builtin.shell: |
+        set -e
+        source {{ env_file }}
+        export NAMESPACE="{{ consumer_ns }}"
+        export KUBECONFIG="{{ item.kubeconfig }}"
+        {{ ('export KUBECONTEXT="' + item.context + '"') if item.context else '' }}
+        bash {{ import_script }}
+      loop: "{{ enriched_targets }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: imp
+      changed_when: "'created' in (imp.stdout | default('')) or 'created' in (imp.stderr | default(''))"
+
+    # --- (c) install Rook operator Helm release ---
+    - name: Add rook-release Helm repo (idempotent)
+      ansible.builtin.command: helm repo add rook-release https://charts.rook.io/release
+      register: add_repo
+      changed_when: "'already exists' not in add_repo.stderr | default('')"
+      failed_when: add_repo.rc != 0 and 'already exists' not in add_repo.stderr | default('')
+
+    - name: Update Helm repos
+      ansible.builtin.command: helm repo update
+      changed_when: false
+
+    - name: Install Rook operator (CSI only) per consumer
+      ansible.builtin.shell: |
+        helm upgrade --install rook-ceph rook-release/rook-ceph \
+          --version {{ rook_chart_version }} \
+          --kubeconfig {{ item.kubeconfig }} \
+          {{ ('--kube-context ' + item.context) if item.context else '' }} \
+          --namespace {{ consumer_ns }} \
+          --set csi.enableRbdDriver=true \
+          --set csi.enableCephfsDriver=true \
+          --set enableDiscoveryDaemon=false \
+          --set monitoring.enabled=false
+      loop: "{{ enriched_targets }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: helm_op
+      changed_when: "'has been upgraded' in (helm_op.stdout | default('')) or 'has been installed' in (helm_op.stdout | default(''))"
+
+    - name: Apply external CephCluster CR (crash collector disabled)
+      ansible.builtin.shell: |
+        cat <<'EOF' | kubectl {{ item.kubectl_args }} apply -f -
+        apiVersion: ceph.rook.io/v1
+        kind: CephCluster
+        metadata:
+          name: rook-ceph
+          namespace: {{ consumer_ns }}
+        spec:
+          external:
+            enable: true
+          crashCollector:
+            disable: true
+          dataDirHostPath: /var/lib/rook
+          monitoring:
+            enabled: false
+        EOF
+      loop: "{{ enriched_targets }}"
+      loop_control:
+        label: "{{ item.name }}"
+      changed_when: false
+
+    - name: Wait for rook-ceph-operator Ready in consumer
+      ansible.builtin.shell: |
+        kubectl {{ item.kubectl_args }} -n {{ consumer_ns }} rollout status deploy/rook-ceph-operator --timeout=300s
+      loop: "{{ enriched_targets }}"
+      loop_control:
+        label: "{{ item.name }}"
+      changed_when: false
+
+    # --- (d) StorageClass view + scratch PVC verification ---
+    - name: Show StorageClasses
+      ansible.builtin.shell: kubectl {{ item.kubectl_args }} get sc
+      loop: "{{ enriched_targets }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: sc_show
+      changed_when: false
+
+    - ansible.builtin.debug:
+        msg:
+          - "{{ item.item.name }}:"
+          - "{{ item.stdout_lines }}"
+      loop: "{{ sc_show.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+
+    - name: Create scratch RWO PVC (ceph-rbd)
+      ansible.builtin.shell: |
+        cat <<'EOF' | kubectl {{ item.kubectl_args }} apply -f -
+        apiVersion: v1
+        kind: PersistentVolumeClaim
+        metadata: {name: ceph-probe-rwo, namespace: default}
+        spec:
+          accessModes: [ReadWriteOnce]
+          storageClassName: ceph-rbd
+          resources: { requests: { storage: 1Gi } }
+        EOF
+      loop: "{{ enriched_targets }}"
+      loop_control:
+        label: "{{ item.name }}"
+      changed_when: false
+
+    - name: Wait for scratch PVC to Bind
+      ansible.builtin.shell: |
+        for i in $(seq 1 30); do
+          phase=$(kubectl {{ item.kubectl_args }} -n default get pvc ceph-probe-rwo -o jsonpath='{.status.phase}' 2>/dev/null)
+          echo "[{{ item.name }}] attempt=$i phase=$phase"
+          [ "$phase" = "Bound" ] && exit 0
+          sleep 10
+        done
+        exit 1
+      loop: "{{ enriched_targets }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: probe
+      changed_when: false
+
+    - ansible.builtin.debug:
+        msg: "{{ item.stdout_lines[-5:] }}"
+      loop: "{{ probe.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"

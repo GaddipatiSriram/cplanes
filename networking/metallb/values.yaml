@@ -1,0 +1,68 @@
+# Values for the forge MetalLB umbrella chart.
+#
+# Two sections:
+#   metallb.*  — passed to the upstream metallb/metallb subchart
+#                (controller + speaker DaemonSet + admission webhook).
+#   pool.*     — drive templates/ipaddresspool-l2adv.yaml.
+
+# -----------------------------------------------------------------------------
+# Subchart values (controller + speaker)
+# -----------------------------------------------------------------------------
+metallb:
+  # Webhook needs cert-manager OR the chart's own self-signed cert.  The
+  # chart ships with a self-signed default; we keep it (cert-manager Vault
+  # PKI issuer is forge-cluster-only, but MetalLB runs on every workload
+  # cluster including dev-* where cert-manager-vault-pki may not exist).
+  controller:
+    enabled: true
+    image:
+      # Upstream chart uses repository as full path (no separate registry).
+      repository: quay.io/metallb/controller
+      tag: v0.14.8
+    resources:
+      requests:
+        cpu: 25m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+
+  speaker:
+    enabled: true
+    image:
+      repository: quay.io/metallb/speaker
+      tag: v0.14.8
+    # Speaker runs as a DaemonSet on every node; needs hostNetwork to
+    # ARP/NDP-respond on the L2 segment.
+    resources:
+      requests:
+        cpu: 25m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+
+  # Drop unused features to keep the install minimal.
+  prometheus:
+    serviceAccount: ""           # observability hooks come later
+    serviceMonitor:
+      enabled: false
+  frrk8s:
+    enabled: false               # we run pure L2 (ARP), not BGP
+
+# -----------------------------------------------------------------------------
+# Per-cluster IP pool + L2 advertisement
+# (templates/ipaddresspool-l2adv.yaml renders these)
+# -----------------------------------------------------------------------------
+# The AppSet overrides pool.name, pool.range to match the cluster's VLAN.
+# Defaults below are mgmt-forge-shaped so the chart is sensible standalone.
+pool:
+  # Name shows up on Service annotations (metallb.universe.tf/address-pool).
+  # Convention: <cluster-name>-pool.
+  name: "mgmt-forge-pool"
+  # CIDR or hyphenated range — both accepted by IPAddressPool.spec.addresses.
+  range: "10.10.5.200-10.10.5.220"
+  # L2Advertisement matching this pool. One per cluster is enough.
+  advertisementName: "mgmt-forge-l2"
+  # Auto-assign to any LoadBalancer Service that doesn't pin an annotation.
+  autoAssign: true

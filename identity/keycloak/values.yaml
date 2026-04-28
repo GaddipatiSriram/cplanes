@@ -1,0 +1,174 @@
+# Values for the forge Keycloak umbrella chart.
+# Subchart names: `keycloakx` and `postgresql` — must match Chart.yaml.
+#
+# Architecture:
+#   - Keycloak (production mode, Quarkus) on 1 replica
+#   - PostgreSQL (bitnami subchart), DB creds from Vault via ESO
+#   - Admin credentials pulled from Vault via ExternalSecret (templates/)
+#   - TLS terminated at ingress-nginx (Keycloak speaks plain HTTP inside)
+#
+# === GOTCHAS (hard-won, keep before bumping the Keycloak image) ==============
+#
+# 1. Bootstrap admin env var names are version-dependent.
+#    - Keycloak 25.x reads  KEYCLOAK_ADMIN / KEYCLOAK_ADMIN_PASSWORD.
+#    - Keycloak 26+  reads  KC_BOOTSTRAP_ADMIN_USERNAME / _PASSWORD.
+#    If the wrong names are set, Keycloak silently ignores them — the master
+#    realm boots with no admin user and the UI shows "You will need local
+#    access to create the administrative user."
+#    Current state: running 25.x. templates/admin-externalsecret.yaml remaps
+#    the Vault keys (stored under the KC_BOOTSTRAP_ADMIN_* names) to the
+#    KEYCLOAK_ADMIN* env vars. When bumping to 26+, drop the remap.
+#
+# 2. --proxy-headers=forwarded vs xforwarded.
+#    ingress-nginx sends X-Forwarded-Proto / X-Forwarded-Host / X-Forwarded-For
+#    (default), NOT the RFC 7239 `Forwarded:` header. Pass
+#    `--proxy-headers=xforwarded` to Keycloak. With `forwarded`, Keycloak
+#    doesn't see TLS termination and advertises http:// in OIDC issuer URLs,
+#    which breaks the admin console ("Danger alert: somethingWentWrong").
+#
+# 3. KC_HTTP_RELATIVE_PATH prefixes the management port (:9000) too.
+#    With KC_HTTP_RELATIVE_PATH=/auth, /health/* on :9000 returns 404. Probes
+#    must hit /auth/health/{live,ready,started}.
+#
+# 4. DB Secret name must match what the pod actually mounts.
+#    keycloakx.database.existingSecret points the Keycloak StatefulSet at a
+#    pre-existing Secret (keycloak-db-creds, materialized from Vault by
+#    templates/db-externalsecret.yaml). This avoids the bitnami/postgresql
+#    subchart rotating a fresh random password on every Helm re-render.
+#    Both subcharts must reference the SAME Secret (see postgresql.auth.*).
+#
+# 5. bitnami/postgresql image tag.
+#    Bitnami moved free images to `bitnamilegacy/*`. The chart's default
+#    `bitnami/postgresql:<tag>` 404s. Override image.repository accordingly.
+#
+# =============================================================================
+
+keycloakx:
+  # Explicit command forces production mode; default is `start-dev`.
+  # `--http-enabled=true` — plain HTTP inside the cluster, ingress-nginx does TLS.
+  # `--hostname-strict=false` — permits access through the ingress hostname.
+  command:
+    - "/opt/keycloak/bin/kc.sh"
+    - "start"
+    - "--http-enabled=true"
+    - "--hostname-strict=false"
+    # ingress-nginx sends X-Forwarded-* (not RFC 7239 Forwarded:), so use
+    # xforwarded. With `forwarded`, Keycloak misses TLS termination and
+    # advertises http:// in OIDC issuer URLs.
+    - "--proxy-headers=xforwarded"
+    # Single replica — use local cache instead of the default JGroups/Infinispan
+    # DNS_PING clustering (which needs sibling pods). Switch to --cache=ispn
+    # + --cache-stack=kubernetes once we move to HA >= 2 replicas.
+    - "--cache=local"
+    # Expose /health/{live,ready,started} on the management interface (:9000).
+    # Required for the probes in this chart (disabled by default in 25+).
+    - "--health-enabled=true"
+    - "--metrics-enabled=true"
+
+  # Single replica — Keycloak supports HA clustering but needs jdbc-ping or
+  # similar. Bring up after Keycloak basic is green.
+  replicas: 1
+
+  # Bootstrap admin creds — env vars read from the ExternalSecret-managed Secret.
+  extraEnvFrom: |
+    - secretRef:
+        name: keycloak-admin
+
+  # Database — point at in-cluster PostgreSQL (bundled below).
+  # Reads DB password from Secret/keycloak-db-creds (materialized from Vault
+  # by templates/db-externalsecret.yaml). Using a Vault-sourced Secret avoids
+  # bitnami's chart re-rendering new random passwords on every Helm sync.
+  database:
+    vendor: postgres
+    hostname: keycloak-postgresql
+    port: 5432
+    database: keycloak
+    username: keycloak
+    existingSecret: keycloak-db-creds
+    existingSecretKey: password
+
+  # Ingress via ingress-nginx
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    annotations:
+      nginx.ingress.kubernetes.io/backend-protocol: HTTP
+      nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    rules:
+      - host: keycloak.apps.mgmt-forge.engatwork.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []  # ingress-nginx default cert for now; cert-manager Certificate later
+
+  # Resources — Keycloak is JVM, starts around 500Mi
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      cpu: 1
+      memory: 1Gi
+
+  # Keycloak 25+ serves health on the management interface (port 9000), not the
+  # main HTTP port (8080). KC_HTTP_RELATIVE_PATH=/auth prefixes BOTH ports, so
+  # probes must hit /auth/health/* — /health/* returns 404 on :9000.
+  # startupProbe absorbs the long JVM + Quarkus augmentation boot (up to 5 min).
+  livenessProbe: |
+    httpGet:
+      path: /auth/health/live
+      port: 9000
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readinessProbe: |
+    httpGet:
+      path: /auth/health/ready
+      port: 9000
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  startupProbe: |
+    httpGet:
+      path: /auth/health/started
+      port: 9000
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 30
+
+# =============================================================================
+# PostgreSQL subchart (bitnami)
+# =============================================================================
+postgresql:
+  # Bitnami moved free images to `bitnamilegacy/` after putting `bitnami/` on a
+  # paid tier. The Helm chart still defaults to `bitnami/postgresql:<purged tag>`
+  # which 404s. Override to bitnamilegacy.
+  image:
+    registry: docker.io
+    repository: bitnamilegacy/postgresql
+    tag: "17.6.0-debian-12-r4"
+
+  auth:
+    # Point the subchart at our Vault-managed Secret so it NEVER rotates
+    # the password on Helm re-render. Keys must be "password" + "postgres-password".
+    existingSecret: keycloak-db-creds
+    secretKeys:
+      adminPasswordKey: postgres-password
+      userPasswordKey: password
+    username: keycloak
+    database: keycloak
+
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+      storageClass: local-path
+
+    resources:
+      requests:
+        cpu: 50m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi

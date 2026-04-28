@@ -1,0 +1,222 @@
+# Values for the Rook-Ceph cluster umbrella chart on mgmt-storage.
+# Subchart name: `rook-ceph-cluster` — must match Chart.yaml dependency.
+#
+# Upstream: https://github.com/rook/rook/blob/v1.15.5/deploy/charts/rook-ceph-cluster/values.yaml
+#
+# Translates the former `cephcluster.yaml` + `pools.yaml` manifests into
+# chart values. Argo uses this as a proper GitOps source; changes go through
+# PR → Argo sync rather than kubectl apply.
+
+rook-ceph-cluster:
+  # Namespace where the operator is installed (see operator/Chart.yaml).
+  operatorNamespace: rook-ceph
+
+  # Match the existing live CephCluster CR name so Argo adopts rather than
+  # conflicts. "rook-ceph" is the default.
+  clusterName: rook-ceph
+
+  # Debugging toolbox — shipped on by default so `ceph -s` / `ceph osd dump`
+  # are one kubectl-exec away when we need them. Image tag resolves from
+  # cephClusterSpec.cephVersion.image.
+  toolbox:
+    enabled: true
+
+  # === Cluster-wide Ceph spec ================================================
+  # This is inlined into the CephCluster CR's .spec. Schema matches
+  # https://rook.io/docs/rook/v1.15/CRDs/Cluster/ceph-cluster-crd/
+  cephClusterSpec:
+    cephVersion:
+      image: quay.io/ceph/ceph:v18.2.4
+      allowUnsupported: false
+
+    dataDirHostPath: /var/lib/rook
+    skipUpgradeChecks: false
+    continueUpgradeAfterChecksEvenIfNotHealthy: false
+    waitTimeoutForHealthyOSDInMinutes: 10
+
+    mon:
+      count: 3
+      allowMultiplePerNode: false
+
+    mgr:
+      count: 2
+      modules:
+        - name: pg_autoscaler
+          enabled: true
+
+    dashboard:
+      enabled: true
+      ssl: false
+
+    monitoring:
+      enabled: false
+
+    # === Network — THE LOAD-BEARING FIX ======================================
+    # See storage/rook-ceph/README.md issue #1. hostNetwork alone was not
+    # enough; Cilium multi-homes pods so OSDs were registering pod-CIDR IPs
+    # in the osdmap. Pinning addressRanges forces the correct interface.
+    network:
+      provider: host
+      addressRanges:
+        public:  ["10.10.4.0/24"]
+        cluster: ["10.10.4.0/24"]
+      connections:
+        encryption: { enabled: false }
+        compression: { enabled: false }
+        requireMsgr2: false
+
+    crashCollector:
+      disable: false
+
+    logCollector:
+      enabled: true
+      periodicity: daily
+      maxLogSize: 500M
+
+    cleanupPolicy:
+      confirmation: ""
+      sanitizeDisks: { method: quick, dataSource: zero, iteration: 1 }
+      allowUninstallWithVolumes: false
+
+    resources:
+      mgr:
+        limits: { cpu: "1000m", memory: "1Gi" }
+        requests: { cpu: "100m", memory: "512Mi" }
+      mon:
+        limits: { cpu: "2000m", memory: "2Gi" }
+        requests: { cpu: "100m", memory: "512Mi" }
+      osd:
+        limits: { cpu: "2000m", memory: "4Gi" }
+        requests: { cpu: "500m", memory: "1Gi" }
+
+    placement:
+      all:
+        tolerations:
+          - key: node-role.kubernetes.io/control-plane
+            operator: Exists
+            effect: NoSchedule
+
+    storage:
+      useAllNodes: false
+      useAllDevices: false
+      nodes:
+        - name: "mgmt-storage-01"
+          devices:
+            - name: "sdb"
+        - name: "mgmt-storage-02"
+          devices:
+            - name: "sdb"
+        - name: "mgmt-storage-03"
+          devices:
+            - name: "sdb"
+
+    healthCheck:
+      daemonHealth:
+        mon:    { disabled: false, interval: 45s }
+        osd:    { disabled: false, interval: 60s }
+        status: { disabled: false, interval: 60s }
+
+    priorityClassNames:
+      mon: system-node-critical
+      osd: system-node-critical
+      mgr: system-cluster-critical
+
+  # === Block: RBD pool + StorageClass =========================================
+  cephBlockPools:
+    - name: replicapool
+      spec:
+        failureDomain: host
+        replicated:
+          size: 3
+          requireSafeReplicaSize: true
+        enableCrushUpdates: true
+      storageClass:
+        enabled: true
+        name: ceph-rbd
+        isDefault: false
+        reclaimPolicy: Delete
+        allowVolumeExpansion: true
+        volumeBindingMode: Immediate
+        parameters:
+          imageFormat: "2"
+          imageFeatures: layering
+          csi.storage.k8s.io/fstype: ext4
+          # CSI auth Secrets — must match what the rook operator creates.
+          # Parameters in StorageClass are immutable after creation, so these
+          # MUST match what's live or adoption fails with a 422.
+          csi.storage.k8s.io/provisioner-secret-name: rook-csi-rbd-provisioner
+          csi.storage.k8s.io/provisioner-secret-namespace: rook-ceph
+          csi.storage.k8s.io/controller-expand-secret-name: rook-csi-rbd-provisioner
+          csi.storage.k8s.io/controller-expand-secret-namespace: rook-ceph
+          csi.storage.k8s.io/node-stage-secret-name: rook-csi-rbd-node
+          csi.storage.k8s.io/node-stage-secret-namespace: rook-ceph
+
+  # === File: CephFilesystem + StorageClass ====================================
+  cephFileSystems:
+    - name: myfs
+      spec:
+        metadataPool:
+          failureDomain: host
+          replicated: { size: 3 }
+        dataPools:
+          - name: data0
+            failureDomain: host
+            replicated: { size: 3 }
+        preserveFilesystemOnDelete: true
+        metadataServer:
+          activeCount: 1
+          activeStandby: true
+          resources:
+            limits:   { cpu: "1000m", memory: "1Gi" }
+            requests: { cpu: "100m",  memory: "256Mi" }
+      storageClass:
+        enabled: true
+        name: cephfs
+        isDefault: true
+        reclaimPolicy: Delete
+        allowVolumeExpansion: true
+        volumeBindingMode: Immediate
+        parameters:
+          fsName: myfs
+          pool: myfs-data0
+          # CSI auth Secrets — same invariant as ceph-rbd above.
+          csi.storage.k8s.io/provisioner-secret-name: rook-csi-cephfs-provisioner
+          csi.storage.k8s.io/provisioner-secret-namespace: rook-ceph
+          csi.storage.k8s.io/controller-expand-secret-name: rook-csi-cephfs-provisioner
+          csi.storage.k8s.io/controller-expand-secret-namespace: rook-ceph
+          csi.storage.k8s.io/node-stage-secret-name: rook-csi-cephfs-node
+          csi.storage.k8s.io/node-stage-secret-namespace: rook-ceph
+
+  # === Object: RGW ObjectStore + admin user ===================================
+  cephObjectStores:
+    - name: my-store
+      spec:
+        metadataPool:
+          failureDomain: host
+          replicated: { size: 3 }
+        dataPool:
+          failureDomain: host
+          replicated: { size: 3 }
+        preservePoolsOnDelete: false
+        gateway:
+          port: 80
+          instances: 2
+          placement:
+            tolerations:
+              - key: node-role.kubernetes.io/control-plane
+                operator: Exists
+                effect: NoSchedule
+          resources:
+            limits:   { cpu: "1000m", memory: "1Gi" }
+            requests: { cpu: "100m",  memory: "256Mi" }
+      storageClass:
+        enabled: true
+        name: ceph-rgw
+        reclaimPolicy: Delete
+        parameters:
+          region: us-east-1
+
+  # NOTE: the upstream chart does NOT support cephObjectStoreUsers in values.
+  # The admin-user CR is managed by our umbrella chart as a local template
+  # at templates/cephobjectstoreuser.yaml — that way Argo still owns it and
+  # we don't rely on a separate kubectl apply.

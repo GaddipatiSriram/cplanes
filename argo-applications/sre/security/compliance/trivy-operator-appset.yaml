@@ -1,0 +1,65 @@
+# ApplicationSet — trivy-operator on every workload-capable cluster.
+#
+# Pattern A selector:
+#   tier In [mgmt, dev]   AND   role NotIn [storage]
+#
+# Matches today: mgmt-forge.
+# Matches in future (once registered): mgmt-observability, mgmt-core,
+# dev-apps, dev-data, dev-web.
+# Excluded: mgmt-storage (role=storage), OKD (no tier label).
+#
+# Apply once:
+#   kubectl --context admin apply -f trivy-operator-appset.yaml
+
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: trivy-operator
+  namespace: argocd-sre
+spec:
+  generators:
+    - clusters:
+        selector:
+          matchExpressions:
+            - { key: tier, operator: In,    values: [mgmt, dev] }
+            - { key: role, operator: NotIn, values: [storage] }
+  template:
+    metadata:
+      name: 'trivy-operator-{{name}}'
+      labels:
+        app.kubernetes.io/name: trivy-operator
+        app.kubernetes.io/part-of: security
+      annotations:
+        argocd.argoproj.io/sync-wave: "2"
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/GaddipatiSriram/cplanes.git
+        targetRevision: HEAD
+        path: security/compliance/trivy-operator
+        helm:
+          releaseName: trivy-operator
+      destination:
+        server: '{{server}}'
+        namespace: trivy-system
+      syncPolicy:
+        automated:
+          selfHeal: true
+          prune: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+          - SkipDryRunOnMissingResource=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 10s
+            factor: 2
+            maxDuration: 3m
+      ignoreDifferences:
+        # Trivy DB ConfigMap timestamps churn — ignore to avoid sync noise
+        - group: ""
+          kind: ConfigMap
+          name: trivy-operator-trivy-config
+          jsonPointers:
+            - /metadata/annotations

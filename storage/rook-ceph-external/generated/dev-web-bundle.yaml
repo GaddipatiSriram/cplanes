@@ -1,0 +1,142 @@
+# Auto-generated — DO NOT EDIT BY HAND
+# Consumer: dev-web
+# Default StorageClass: cephfs
+# Source cluster: mgmt-storage  ·  fsid: 903c9aca-378c-4e0c-bb85-bf101750eb47
+#
+# Apply order:
+#   1. This bundle (creates namespace + secrets + configmap + StorageClasses)
+#   2. Rook-Ceph operator (external-cluster Helm values) — see step 5
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: rook-ceph-external
+---
+# Mon endpoints — how the consumer CSI finds the mgmt-storage Ceph cluster
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rook-ceph-mon-endpoints
+  namespace: rook-ceph-external
+data:
+  data: "f=10.10.4.101:6789,d=10.10.4.100:6789,e=10.10.4.102:6789"
+  mapping: "{}"
+  maxMonId: "5"
+---
+# Admin-equivalent identity for the external connection
+apiVersion: v1
+kind: Secret
+metadata:
+  name: rook-ceph-mon
+  namespace: rook-ceph-external
+type: Opaque
+stringData:
+  cluster-name: "rook-ceph"
+  fsid: "903c9aca-378c-4e0c-bb85-bf101750eb47"
+  admin-secret: "admin-secret"
+  mon-secret: "mon-secret"
+  ceph-username: "client.healthchecker"
+  ceph-secret: "AQDPbt5pM+tABRAANYzpzFLijHxoUefpB3tB7A=="
+---
+# RBD CSI secrets
+apiVersion: v1
+kind: Secret
+metadata:
+  name: rook-csi-rbd-node
+  namespace: rook-ceph-external
+type: Opaque
+stringData:
+  userID: "csi-rbd-node"
+  userKey: "AQAQat5pcW7KHRAATOj/KE2ppuvaEmid+FYhvg=="
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: rook-csi-rbd-provisioner
+  namespace: rook-ceph-external
+type: Opaque
+stringData:
+  userID: "csi-rbd-provisioner"
+  userKey: "AQAQat5pvvBQCxAAAWw0dNULjARxM7G40PM7nw=="
+---
+# CephFS CSI secrets
+apiVersion: v1
+kind: Secret
+metadata:
+  name: rook-csi-cephfs-node
+  namespace: rook-ceph-external
+type: Opaque
+stringData:
+  adminID: "csi-cephfs-node"
+  adminKey: "AQARat5pBafFDBAA3dT2VJeCHl115igpv6Xxxg=="
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: rook-csi-cephfs-provisioner
+  namespace: rook-ceph-external
+type: Opaque
+stringData:
+  adminID: "csi-cephfs-provisioner"
+  adminKey: "AQAQat5pRT2zMRAAROdsrMbnAamHFw5/M7omtA=="
+---
+# StorageClass: ceph-rbd  (block, RWO)
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: ceph-rbd
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "false"
+provisioner: rook-ceph-external.rbd.csi.ceph.com
+parameters:
+  clusterID: "rook-ceph-external"
+  pool: replicapool
+  imageFormat: "2"
+  imageFeatures: layering
+  csi.storage.k8s.io/provisioner-secret-name: rook-csi-rbd-provisioner
+  csi.storage.k8s.io/provisioner-secret-namespace: rook-ceph-external
+  csi.storage.k8s.io/controller-expand-secret-name: rook-csi-rbd-provisioner
+  csi.storage.k8s.io/controller-expand-secret-namespace: rook-ceph-external
+  csi.storage.k8s.io/node-stage-secret-name: rook-csi-rbd-node
+  csi.storage.k8s.io/node-stage-secret-namespace: rook-ceph-external
+  csi.storage.k8s.io/fstype: ext4
+allowVolumeExpansion: true
+reclaimPolicy: Delete
+---
+# StorageClass: cephfs  (file, RWX)
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: cephfs
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+provisioner: rook-ceph-external.cephfs.csi.ceph.com
+parameters:
+  clusterID: "rook-ceph-external"
+  fsName: myfs
+  pool: myfs-data0
+  csi.storage.k8s.io/provisioner-secret-name: rook-csi-cephfs-provisioner
+  csi.storage.k8s.io/provisioner-secret-namespace: rook-ceph-external
+  csi.storage.k8s.io/controller-expand-secret-name: rook-csi-cephfs-provisioner
+  csi.storage.k8s.io/controller-expand-secret-namespace: rook-ceph-external
+  csi.storage.k8s.io/node-stage-secret-name: rook-csi-cephfs-node
+  csi.storage.k8s.io/node-stage-secret-namespace: rook-ceph-external
+allowVolumeExpansion: true
+reclaimPolicy: Delete
+---
+# Reference for S3 consumers (Ceph RGW)
+# RGW on mgmt-storage listens via hostNetwork on port 80 — reachable at any
+# mgmt-storage node IP. Consumer apps use these as env vars / SDK config.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ceph-rgw-endpoint
+  namespace: rook-ceph-external
+data:
+  endpoint: "http://10.10.4.100"
+  alt-endpoints: "http://10.10.4.100,http://10.10.4.101,http://10.10.4.102"
+  note: |
+    S3 credentials for the "admin" user are in the CephObjectStoreUser
+    "admin-user" on the mgmt-storage cluster; fetch via:
+      kubectl -n rook-ceph get secret rook-ceph-object-user-my-store-admin-user -o yaml
+    and create a matching Secret in this namespace if needed.

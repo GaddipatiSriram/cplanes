@@ -1,0 +1,41 @@
+# Secrets — never commit
+**/forge-secret*.yaml
+**/layers-secret*.yaml
+**/*-repo-secret*.yaml
+**/*-secret-secrets-*.yaml
+# Cluster registration Secrets contain bearer tokens + CA certs (Phase 8 output)
+**/cluster-secret.yaml
+**/argocd-cluster-*.yaml
+# Anything ending in -secret.yaml or -secret-*.yaml as defense in depth
+**/*-secret.yaml
+**/*-secret-*.yaml
+**/*.pat
+**/*.pem
+**/*.key
+**/*.crt
+**/*.kubeconfig
+**/kubeconfig-*
+.env
+.env.*
+
+# Helm artifacts
+**/charts/
+**/Chart.lock
+**/*.tgz
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Claude Code agent state
+.claude/
+**/.claude/
+
+# Local-only operator state
+*.local.yaml
+*.local.yml

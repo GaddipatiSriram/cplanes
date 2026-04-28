@@ -1,0 +1,39 @@
+{{- /*
+Alertmanager CR — reconciled by prometheus-operator (deployed by
+observability/prometheus/) into a StatefulSet.
+
+The CR doesn't carry the routing config inline — operator pulls that
+from a Secret named `alertmanager-{{ name }}` (here: `alertmanager-main`).
+Templates/secret.yaml renders that Secret from .Values.config.
+*/}}
+apiVersion: monitoring.coreos.com/v1
+kind: Alertmanager
+metadata:
+  name: main
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    app.kubernetes.io/part-of: observability
+spec:
+  replicas: {{ .Values.alertmanager.replicas }}
+  retention: {{ .Values.alertmanager.retention | quote }}
+  image: {{ .Values.alertmanager.image | quote }}
+  externalUrl: {{ .Values.alertmanager.externalUrl | quote }}
+  resources:
+    {{- toYaml .Values.alertmanager.resources | nindent 4 }}
+  storage:
+    volumeClaimTemplate:
+      spec:
+        storageClassName: {{ .Values.alertmanager.storage.storageClassName | quote }}
+        accessModes:
+          {{- toYaml .Values.alertmanager.storage.accessModes | nindent 10 }}
+        resources:
+          requests:
+            storage: {{ .Values.alertmanager.storage.size | quote }}
+  # Secret name MUST be alertmanager-<cr-name> for the operator to
+  # find it. CR name is `main`, so the secret is `alertmanager-main`.
+  configSecret: alertmanager-main
+  # Wire AlertmanagerConfig CRs from any namespace too — that's how
+  # individual app teams will declare their own routing rules in their
+  # own namespaces (Pattern: each chart can own its alert routes).
+  alertmanagerConfigSelector: {}
+  alertmanagerConfigNamespaceSelector: {}

@@ -1,0 +1,32 @@
+{{- /*
+StorageClass: cephfs — CephFS, RWX.
+
+Default StorageClass on consumers per the forge pattern
+(is-default-class: true). Matches live state on OKD.
+
+Parameters reference:
+  fsName = myfs (CephFilesystem name on mgmt-storage)
+  pool   = myfs-data0 (the data pool for that filesystem)
+*/ -}}
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: cephfs
+  labels:
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+provisioner: rook-ceph-external.cephfs.csi.ceph.com
+parameters:
+  clusterID: rook-ceph-external
+  fsName: myfs
+  pool: myfs-data0
+  csi.storage.k8s.io/provisioner-secret-name: rook-csi-cephfs-provisioner
+  csi.storage.k8s.io/provisioner-secret-namespace: {{ .Release.Namespace }}
+  csi.storage.k8s.io/controller-expand-secret-name: rook-csi-cephfs-provisioner
+  csi.storage.k8s.io/controller-expand-secret-namespace: {{ .Release.Namespace }}
+  csi.storage.k8s.io/node-stage-secret-name: rook-csi-cephfs-node
+  csi.storage.k8s.io/node-stage-secret-namespace: {{ .Release.Namespace }}
+allowVolumeExpansion: true
+reclaimPolicy: Delete

@@ -1,0 +1,29 @@
+apiVersion: v2
+name: grafana
+description: |
+  Grafana — unified visualization UI for the observability stack.
+
+  Datasources point at the cluster-internal Services for each backend:
+    Prometheus: http://prometheus-operated.observability.svc:9090
+    Alertmanager: http://alertmanager-operated.observability.svc:9093
+    Loki (when added): http://loki.observability.svc:3100
+    Tempo (when added): http://tempo.observability.svc:3100
+    Pyroscope (when added): http://pyroscope.observability.svc:4040
+
+  Pattern C ApplicationSet (argo-applications/sre/observability/grafana-appset.yaml).
+  Sync wave 1 — Prometheus + Alertmanager (wave 0) need to be Services
+  before Grafana provisions datasources at boot.
+
+  OIDC via Keycloak is the target but deferred to a follow-up session
+  (depends on Keycloak ingress migrating to a Vault PKI cert per
+  forge/todo.md item 2). For now: admin login with a password from
+  Vault via ExternalSecret.
+
+type: application
+version: 0.1.0
+appVersion: "12.3.1"
+
+dependencies:
+  - name: grafana
+    version: 10.5.15
+    repository: https://grafana.github.io/helm-charts

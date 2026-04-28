@@ -1,0 +1,68 @@
+# Application — Rook-Ceph cluster (CephCluster + pools + fs + RGW) on mgmt-storage.
+# Sync wave 1: runs AFTER the operator is up and CRDs exist.
+#
+# Apply once (after rook-ceph-operator-app.yaml is Synced+Healthy):
+#   kubectl --context admin apply -f rook-ceph-cluster-app.yaml
+#
+# Adoption: the live cluster already has a CephCluster CR "rook-ceph"
+# (applied via kubectl/Ansible). Argo's server-side apply takes ownership
+# of the fields it manages. As long as cluster/values.yaml matches live
+# state, this should sync clean without disruption.
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: rook-ceph-cluster-mgmt-storage
+  namespace: argocd-sre
+  labels:
+    app.kubernetes.io/name: rook-ceph-cluster
+    app.kubernetes.io/part-of: storage
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/GaddipatiSriram/cplanes.git
+    targetRevision: HEAD
+    path: storage/rook-ceph/cluster
+    helm:
+      releaseName: rook-ceph-cluster
+  destination:
+    name: mgmt-storage
+    namespace: rook-ceph
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: false   # don't prune pools/fs/rgw if chart changes — explicit delete only
+    syncOptions:
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 30s   # Ceph reconciles are slow; back off harder
+        factor: 2
+        maxDuration: 5m
+  ignoreDifferences:
+    # CephCluster status has FSID, health, conditions, etc. that churn.
+    - group: ceph.rook.io
+      kind: CephCluster
+      jsonPointers:
+        - /status
+    - group: ceph.rook.io
+      kind: CephBlockPool
+      jsonPointers:
+        - /status
+    - group: ceph.rook.io
+      kind: CephFilesystem
+      jsonPointers:
+        - /status
+    - group: ceph.rook.io
+      kind: CephObjectStore
+      jsonPointers:
+        - /status
+    - group: ceph.rook.io
+      kind: CephObjectStoreUser
+      jsonPointers:
+        - /status

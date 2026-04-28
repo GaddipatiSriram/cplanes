@@ -1,0 +1,13 @@
+# Helm dep downloads — generated, not source
+**/charts/*.tgz
+**/Chart.lock
+
+# Editor/OS
+.DS_Store
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# Claude Code
+.claude/

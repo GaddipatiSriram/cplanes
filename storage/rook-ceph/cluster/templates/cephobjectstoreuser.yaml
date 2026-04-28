@@ -1,0 +1,16 @@
+{{- /*
+CephObjectStoreUser is not exposed in rook-ceph-cluster's values schema.
+Create it here as a local umbrella-chart template so Argo still manages it.
+Keep in sync with cephObjectStores[0].name above.
+*/ -}}
+apiVersion: ceph.rook.io/v1
+kind: CephObjectStoreUser
+metadata:
+  name: admin-user
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  store: my-store
+  displayName: "admin"

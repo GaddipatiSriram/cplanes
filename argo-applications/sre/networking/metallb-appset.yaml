@@ -1,0 +1,100 @@
+# ApplicationSet — MetalLB on every workload-capable cluster.
+#
+# Pattern A (selector tier In [mgmt,dev], role NotIn [storage]).
+# Matches mgmt-forge + mgmt-observability today; dev-{apps,data,web} when
+# they're registered.  Excludes mgmt-storage (Ceph server) and mgmt-core
+# (foundational, off-GitOps — has manual MetalLB serving CoreDNS VIP) and
+# OKD (no tier label — OpenShift has its own router/keepalived).
+#
+# The MetalLB chart deploys controller + speaker DaemonSet + admission
+# webhook + an IPAddressPool/L2Advertisement pair sized for the cluster's
+# VLAN.  Pool ranges differ per VLAN, so we pass them in via per-cluster
+# Helm parameters using a goTemplate `if/else` ladder keyed off cluster
+# name.  When a new cluster is registered, add its case to the ladder.
+#
+# Apply once:
+#   kubectl --context admin apply -f argo-applications/sre/forge/metallb-appset.yaml
+
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: metallb
+  namespace: argocd-sre
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchExpressions:
+            - { key: tier, operator: In,    values: [mgmt, dev] }
+            - { key: role, operator: NotIn, values: [storage] }
+  template:
+    metadata:
+      name: 'metallb-{{.name}}'
+      labels:
+        app.kubernetes.io/name: metallb
+        app.kubernetes.io/part-of: platform
+      annotations:
+        argocd.argoproj.io/sync-wave: "0"
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/GaddipatiSriram/cplanes.git
+        targetRevision: HEAD
+        path: networking/metallb
+        helm:
+          releaseName: metallb
+          parameters:
+            - name: pool.name
+              value: '{{.name}}-pool'
+            - name: pool.advertisementName
+              value: '{{.name}}-l2'
+            # Per-cluster /24 → x.x.x.200-220 reserved for LB VIPs.
+            # Mirror of the metallb_ip_pool entries that already exist in
+            # cluster/k8s-bstrp/group_vars/<cluster>.yml — extend both
+            # files together when a new cluster joins.
+            # Pool ranges per cluster:
+            #   VLAN 11 DevOps:  OKD (no MetalLB) + mgmt-workload = .211-.220
+            #   VLAN 12 Observ:  mgmt-observability = .200-.220
+            #                    (mgmt-search services co-locate here)
+            #   VLAN 13 Storage: mgmt-storage (no MetalLB)
+            #                    (mgmt-data services co-locate on mgmt-forge)
+            #   VLAN 14 Forge:   mgmt-forge = .200-.220
+            - name: pool.range
+              value: '{{- if eq .name "mgmt-forge"           -}}10.10.5.200-10.10.5.220
+                      {{- else if eq .name "mgmt-observability" -}}10.10.3.200-10.10.3.220
+                      {{- else if eq .name "mgmt-workload"   -}}10.10.2.211-10.10.2.220
+                      {{- else if eq .name "dev-web"         -}}10.20.1.200-10.20.1.220
+                      {{- else if eq .name "dev-apps"        -}}10.20.2.200-10.20.2.220
+                      {{- else if eq .name "dev-data"        -}}10.20.3.200-10.20.3.220
+                      {{- else                               -}}MISSING{{- end -}}'
+      destination:
+        server: '{{.server}}'
+        namespace: metallb-system
+      # MetalLB's controller injects its own webhook caBundle onto the
+      # bgppeers CRD's conversion config at runtime — the chart ships
+      # the CRD with caBundle empty, so Argo sees drift on every sync
+      # and flags OutOfSync forever (despite Healthy). Standard fix is
+      # to ignore that field. Other MetalLB CRDs ship without a
+      # conversion webhook so they don't need this rule.
+      ignoreDifferences:
+        - group: apiextensions.k8s.io
+          kind: CustomResourceDefinition
+          name: bgppeers.metallb.io
+          jsonPointers:
+            - /spec/conversion/webhook/clientConfig/caBundle
+      syncPolicy:
+        automated:
+          selfHeal: true
+          prune: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+          - SkipDryRunOnMissingResource=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 10s
+            factor: 2
+            maxDuration: 3m

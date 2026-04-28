@@ -1,0 +1,55 @@
+# Application — Rook-Ceph operator on mgmt-storage.
+# Sync wave 0: operator + CRDs must exist before cluster/ chart syncs.
+#
+# Apply once (after cluster-secret.yaml and storage repo secret exist):
+#   kubectl --context admin apply -f rook-ceph-operator-app.yaml
+#
+# Adoption: the live cluster already has a helm release named "rook-ceph"
+# in the rook-ceph namespace. Argo will apply resources with its own
+# app.kubernetes.io/instance labels via server-side apply. The orphaned
+# Helm release Secret (sh.helm.release.v1.rook-ceph.v1) is harmless and
+# can be deleted later.
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: rook-ceph-operator-mgmt-storage
+  namespace: argocd-sre
+  labels:
+    app.kubernetes.io/name: rook-ceph-operator
+    app.kubernetes.io/part-of: storage
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/GaddipatiSriram/cplanes.git
+    targetRevision: HEAD
+    path: storage/rook-ceph/operator
+    helm:
+      releaseName: rook-ceph
+  destination:
+    name: mgmt-storage
+    namespace: rook-ceph
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: false   # operator chart — don't prune CRDs accidentally
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
+  ignoreDifferences:
+    # CRDs carry status + managed-fields that churn constantly; ignore them
+    # so Argo doesn't thrash.
+    - group: apiextensions.k8s.io
+      kind: CustomResourceDefinition
+      jsonPointers:
+        - /status

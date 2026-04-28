@@ -1,0 +1,19 @@
+apiVersion: v2
+name: alertmanager
+description: |
+  Alertmanager instance for the central observability backend.
+
+  No subchart dependency — the prometheus-operator already running on
+  this cluster (deployed by observability/prometheus/) reconciles
+  `Alertmanager` CRs into StatefulSets.  This chart ships:
+
+  - the Alertmanager CR (replicas, storage, externalURL)
+  - a Secret with alertmanager.yaml (routing tree)
+  - a ServiceMonitor so Prometheus scrapes Alertmanager's own metrics
+
+  Pattern C ApplicationSet (argo-applications/sre/observability/alertmanager-appset.yaml).
+  Sync wave 0 (sibling to prometheus, before grafana).
+
+type: application
+version: 0.1.0
+appVersion: "0.27.0"

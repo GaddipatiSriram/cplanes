@@ -1,0 +1,32 @@
+# Values for the Rook-Ceph external-consumer umbrella chart.
+# Subchart: rook-ceph (operator + CRDs + CSI plugins).
+#
+# This chart runs on EVERY cluster that needs Ceph storage, EXCEPT the
+# server cluster mgmt-storage itself. The operator here stays in external
+# mode (driven by the CephCluster CR below), so it only reconciles CSI
+# config — no mon/osd/mgr daemons are created.
+
+rook-ceph:
+  # CSI drivers are the whole point — kubelet uses them to attach
+  # RBD / mount CephFS volumes for pods.
+  csi:
+    enableRbdDriver: true
+    enableCephfsDriver: true
+    enableGrpcMetrics: false
+
+  # Discovery daemon scans local disks for OSD candidates. Useless here
+  # (no OSDs on consumers) and adds a DaemonSet noise.
+  enableDiscoveryDaemon: false
+
+  # Prometheus monitoring — off until cluster-wide monitoring is up.
+  monitoring:
+    enabled: false
+
+  # Tolerate control-plane taints so CSI can run on mixed CP/worker nodes.
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+    - key: node-role.kubernetes.io/master
+      operator: Exists
+      effect: NoSchedule

@@ -1,0 +1,30 @@
+apiVersion: v2
+name: prometheus
+description: |
+  Prometheus + prometheus-operator on the mgmt-observability cluster.
+
+  We depend on kube-prometheus-stack but only enable two of its
+  subcomponents: the operator and a single Prometheus instance.  Every
+  other thing the upstream chart can install (alertmanager, grafana,
+  kube-state-metrics, node-exporter, defaultRules, the cluster-component
+  ServiceMonitors) is intentionally disabled — those are sibling
+  observability/* charts (or Pattern A agents on each workload cluster)
+  with independent lifecycles.
+
+  The chart name in our repo says "prometheus" because that's what
+  consumers see; the implementation detail that we're using
+  kube-prometheus-stack as the operator+Prometheus delivery vehicle
+  doesn't leak through.
+
+  Pattern C ApplicationSet (argo-applications/sre/observability/prometheus-appset.yaml,
+  selector role=observ).  Sync wave 0 — runs before grafana (wave 1)
+  and alertmanager (wave 0 sibling).
+
+type: application
+version: 0.1.0
+appVersion: "2.55.0"
+
+dependencies:
+  - name: kube-prometheus-stack
+    version: 65.5.0
+    repository: https://prometheus-community.github.io/helm-charts

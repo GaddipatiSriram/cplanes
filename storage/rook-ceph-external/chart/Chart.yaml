@@ -1,0 +1,23 @@
+apiVersion: v2
+name: rook-ceph-external
+description: Umbrella chart — Rook operator in external/CSI-only mode, for consumer clusters connecting to the central Ceph on mgmt-storage
+type: application
+version: 0.1.0
+appVersion: v1.15.5
+
+# Installs the Rook-Ceph operator + CSI plugins, the CephCluster CR in
+# external mode (spec.external.enable: true), and the StorageClasses that
+# point at the remote pools on mgmt-storage.
+#
+# PREREQUISITE (out-of-band, once per consumer):
+#   kubectl apply -f storage/rook-ceph-external/generated/<cluster>-bundle.yaml
+# The bundle creates:
+#   - rook-ceph-external namespace
+#   - rook-ceph-mon-endpoints ConfigMap
+#   - rook-ceph-mon, rook-csi-rbd-{node,provisioner},
+#     rook-csi-cephfs-{node,provisioner} Secrets (cephx keys)
+# These CANNOT live in Git; this chart assumes they already exist.
+dependencies:
+  - name: rook-ceph
+    version: v1.15.5
+    repository: https://charts.rook.io/release

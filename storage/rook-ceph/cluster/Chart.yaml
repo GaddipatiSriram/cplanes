@@ -1,0 +1,15 @@
+apiVersion: v2
+name: rook-ceph-cluster
+description: Umbrella chart wrapping rook-release/rook-ceph-cluster — CephCluster + pools + fs + RGW on mgmt-storage
+type: application
+version: 0.1.0
+appVersion: v1.15.5
+
+# Installs the CephCluster CR and its child CRs (CephBlockPool,
+# CephFilesystem, CephObjectStore) + StorageClasses. Depends on the
+# sibling `operator/` chart being Synced first (CRDs must exist).
+# See Rook docs: https://rook.io/docs/rook/v1.15/Helm-Charts/ceph-cluster-chart/
+dependencies:
+  - name: rook-ceph-cluster
+    version: v1.15.5
+    repository: https://charts.rook.io/release

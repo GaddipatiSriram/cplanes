@@ -1,0 +1,104 @@
+# Grafana umbrella values — wraps grafana/grafana standalone chart.
+
+grafana:
+  # Admin credentials: bootstrap with a static password from a Secret
+  # template'd here (see templates/admin-secret.yaml). Replace with an
+  # ExternalSecret pulling kv/forge/grafana/admin-password from Vault
+  # in a follow-up session — the Vault auth method on mgmt-observability
+  # already exists, just needs the kv path seeded + an ExternalSecret CR.
+  admin:
+    existingSecret: grafana-admin-credentials
+    userKey: admin-user
+    passwordKey: admin-password
+
+  # Replicas: 1 — single-instance is fine for a homelab Grafana.
+  # Sessions are JSON-encoded in browser localStorage so users don't see
+  # the lack of HA. Multi-replica needs a shared session store anyway.
+  replicas: 1
+
+  # Persistence on ceph-rbd — Grafana writes:
+  #   - alerting state (when we use unified alerting)
+  #   - dashboard editing history
+  #   - users / orgs / starred / tags
+  # Annotations + dashboards-as-code live in Git, so the PVC is mostly
+  # operator-mutable state. 5 GiB is plenty.
+  persistence:
+    enabled: true
+    type: pvc
+    storageClassName: ceph-rbd
+    accessModes: [ReadWriteOnce]
+    size: 5Gi
+
+  # Resources — Grafana sits idle most of the time, spikes during query.
+  resources:
+    requests:
+      cpu: 50m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # Datasources provisioned at startup — wired to cluster-internal
+  # Service DNS names for each backend.
+  #
+  # `prometheus-operated` is the Service the operator creates for the
+  # Prometheus CR named `<release>-prometheus` — i.e., the StatefulSet
+  # behind the Prometheus instance, not the Operator's own Service.
+  # `alertmanager-operated` is its Alertmanager-CR sibling.
+  #
+  # uid: locked so dashboards-as-code (committed to Git later) can
+  # reference these by uid without worrying about Grafana's
+  # auto-generated identifiers drifting.
+  datasources:
+    datasources.yaml:
+      apiVersion: 1
+      datasources:
+        - name: Prometheus
+          uid: prometheus
+          type: prometheus
+          url: http://prometheus-operated.observability.svc:9090
+          access: proxy
+          isDefault: true
+          jsonData:
+            timeInterval: 30s
+        - name: Alertmanager
+          uid: alertmanager
+          type: alertmanager
+          url: http://alertmanager-operated.observability.svc:9093
+          access: proxy
+          jsonData:
+            implementation: prometheus
+            handleGrafanaManagedAlerts: false
+
+  # Ingress — for now uses ingress-nginx's default self-signed cert.
+  # Migrate to a cert-manager-issued Vault PKI cert once the
+  # ClusterIssuer exists on this cluster (forge/todo.md item 2 covers
+  # the broader pattern; this Ingress will pick it up by adding the
+  # cert-manager.io/cluster-issuer annotation + a tls block).
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    hosts:
+      - grafana.apps.mgmt-observability.engatwork.com
+    annotations:
+      nginx.ingress.kubernetes.io/ssl-redirect: "true"
+
+  # Service type ClusterIP; ingress fronts it externally.
+  service:
+    type: ClusterIP
+
+  # Sidecar dashboards: any ConfigMap labeled `grafana_dashboard=1` in
+  # any namespace becomes a dashboard. This is how each component's
+  # dashboards-as-code work — a chart's templates emit a ConfigMap with
+  # the right label, and Grafana picks it up automatically.
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      searchNamespace: ALL
+      provider:
+        foldersFromFilesStructure: true
+    datasources:
+      enabled: false   # we declare them inline above; sidecar would
+                       # discover ConfigMaps too if turned on later

@@ -1,0 +1,80 @@
+# ApplicationSet — Rook-Ceph external-consumer install on every
+# non-server, non-OKD consumer cluster.
+#
+# Selector:
+#   tier In [mgmt, dev]    — workload-capable tiers (mgmt-forge today;
+#                             dev-{apps,data,web} when labeled)
+#   role NotIn [storage]    — exclude mgmt-storage (it IS the server)
+#
+# OKD's in-cluster Secret has no `tier` label, so In() excludes it
+# automatically. OKD keeps its existing Ansible-installed
+# rook-ceph-external namespace untouched — Jenkins PVC continues to
+# work. Future: migrate OKD to this ApplicationSet when we're ready
+# (add a tier label to the in-cluster Secret).
+#
+# PREREQUISITE (out-of-band, once per consumer):
+#   kubectl --context <cluster> apply -f \
+#     storage/rook-ceph-external/generated/<cluster>-bundle.yaml
+# Bootstraps the cephx Secrets + mon-endpoints ConfigMap that Argo cannot
+# own (they hold cephx keys and aren't in Git).
+#
+# Apply once:
+#   kubectl --context admin apply -f rook-ceph-external-appset.yaml
+
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: rook-ceph-external
+  namespace: argocd-sre
+spec:
+  generators:
+    - clusters:
+        selector:
+          matchExpressions:
+            - key: tier
+              operator: In
+              values: [mgmt, dev]
+            - key: role
+              operator: NotIn
+              values: [storage]
+  template:
+    metadata:
+      name: 'rook-ceph-external-{{name}}'
+      labels:
+        app.kubernetes.io/name: rook-ceph-external
+        app.kubernetes.io/part-of: storage
+      annotations:
+        argocd.argoproj.io/sync-wave: "0"
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/GaddipatiSriram/cplanes.git
+        targetRevision: HEAD
+        path: storage/rook-ceph-external/chart
+        helm:
+          releaseName: rook-ceph
+      destination:
+        server: '{{server}}'
+        namespace: rook-ceph-external
+      syncPolicy:
+        automated:
+          selfHeal: true
+          prune: false      # don't prune — cephx Secrets/ConfigMap aren't
+                            # in Git and shouldn't be touched by Argo
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+          - SkipDryRunOnMissingResource=true
+          - RespectIgnoreDifferences=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 10s
+            factor: 2
+            maxDuration: 3m
+      ignoreDifferences:
+        # CephCluster status churns constantly (health, conditions).
+        - group: ceph.rook.io
+          kind: CephCluster
+          jsonPointers:
+            - /status

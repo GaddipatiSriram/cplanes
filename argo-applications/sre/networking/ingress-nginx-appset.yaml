@@ -1,0 +1,79 @@
+# ApplicationSet — ingress-nginx on every role=forge cluster (currently: mgmt-forge)
+#
+# Pattern B (umbrella chart): single source points at ingress-nginx/ in the
+# git repo root. ArgoCD's repo-server runs `helm dependency build` on Chart.yaml,
+# pulls kubernetes/ingress-nginx v4.11.3, and renders with values.yaml.
+#
+# MetalLB assigns the Service.LoadBalancer the VIP 10.10.5.201 (from forge's
+# pool 10.10.5.200-220). That IP becomes the single entry point for every
+# Ingress resource on the cluster.
+#
+# Apply once:
+#   kubectl --context admin apply -f argo-applications/sre/forge/ingress-nginx-appset.yaml
+
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: ingress-nginx
+  namespace: argocd-sre
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          # Pattern A — every workload-capable cluster needs an ingress controller.
+          # Matches mgmt-forge, mgmt-observability, mgmt-core, dev-*.
+          # Excludes mgmt-storage (no workloads with Ingress resources).
+          matchExpressions:
+            - { key: tier, operator: In,    values: [mgmt, dev] }
+            - { key: role, operator: NotIn, values: [storage] }
+  template:
+    metadata:
+      name: 'ingress-nginx-{{.name}}'
+      labels:
+        app.kubernetes.io/name: ingress-nginx
+        app.kubernetes.io/part-of: platform
+      annotations:
+        argocd.argoproj.io/sync-wave: "0"
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/GaddipatiSriram/cplanes.git
+        targetRevision: HEAD
+        path: networking/ingress-nginx
+        helm:
+          releaseName: ingress-nginx
+          # Pin the controller's LoadBalancer VIP to a per-cluster IP from
+          # that cluster's MetalLB pool. Annotation keys with dots don't
+          # round-trip cleanly through helm `--set` (Argo's `parameters`
+          # mechanism), so we use `valuesObject` to inject raw YAML
+          # values instead — the annotation key reads naturally.
+          valuesObject:
+            ingress-nginx:
+              controller:
+                service:
+                  annotations:
+                    metallb.universe.tf/loadBalancerIPs: '{{- if eq .name "mgmt-forge"             -}}10.10.5.201
+                                                          {{- else if eq .name "mgmt-observability" -}}10.10.3.201
+                                                          {{- else if eq .name "mgmt-workload"     -}}10.10.2.211
+                                                          {{- else if eq .name "dev-web"           -}}10.20.1.201
+                                                          {{- else if eq .name "dev-apps"          -}}10.20.2.201
+                                                          {{- else if eq .name "dev-data"          -}}10.20.3.201
+                                                          {{- else                                  -}}MISSING{{- end -}}'
+      destination:
+        server: '{{.server}}'
+        namespace: ingress-nginx
+      syncPolicy:
+        automated:
+          selfHeal: true
+          prune: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 10s
+            factor: 2
+            maxDuration: 3m

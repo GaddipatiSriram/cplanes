@@ -1,0 +1,55 @@
+# Alertmanager — operator-managed instance config.
+#
+# The operator (prometheus-operator from observability/prometheus/) is
+# what actually reconciles this Alertmanager CR into a StatefulSet.
+# Disabling/enabling features happens in spec.* below.
+
+alertmanager:
+  replicas: 3              # HA — gossip protocol dedupes alerts across replicas
+  retention: 120h          # 5 days of alert state
+  image: quay.io/prometheus/alertmanager:v0.27.0
+  resources:
+    requests:
+      cpu: 25m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+  storage:
+    storageClassName: ceph-rbd
+    accessModes: [ReadWriteOnce]
+    size: 5Gi
+  # external-facing URL — what users see in the Alertmanager UI links
+  # (and what Slack click-throughs target).  Wire to a Grafana
+  # Alertmanager view or a dedicated ingress later.
+  externalUrl: "http://alertmanager.observability.svc.cluster.local:9093"
+
+# Routing config.
+#
+# Stub for now — every alert goes to the `null` receiver (silent).
+# Real receivers (Slack/email/PagerDuty/OnCall webhook) come once the
+# corresponding ESO ExternalSecrets pull credentials from Vault.  See
+# forge/todo.md item 2 (cert migration) and the OnCall chart later.
+config:
+  global:
+    resolve_timeout: 5m
+  route:
+    group_by: [alertname, cluster, service]
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 12h
+    receiver: 'null'
+    routes:
+      # When PagerDuty / Slack / OnCall come online, peel off severity-
+      # critical alerts here. Today every route lands at `null`.
+      - matchers:
+          - severity = critical
+        receiver: 'null'
+  receivers:
+    - name: 'null'
+  inhibit_rules:
+    # Suppress non-critical alerts when a critical of the same alertname
+    # fires — standard pattern.
+    - source_matchers: [severity = critical]
+      target_matchers: [severity =~ "warning|info"]
+      equal: [alertname, cluster, service]

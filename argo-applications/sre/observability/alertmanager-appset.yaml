@@ -1,0 +1,54 @@
+# ApplicationSet — Alertmanager (CR-only chart) on observability cluster.
+#
+# Pattern C selector role=observ. Sync wave 0 (sibling to prometheus —
+# the operator from prometheus chart reconciles this Alertmanager CR).
+# Grafana (wave 1) provisions an Alertmanager datasource pointing at
+# the Service this CR materializes.
+#
+# Apply:
+#   kubectl --context admin apply -f argo-applications/sre/observability/alertmanager-appset.yaml
+
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: alertmanager
+  namespace: argocd-sre
+spec:
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            role: observ
+  template:
+    metadata:
+      name: 'alertmanager-{{name}}'
+      labels:
+        app.kubernetes.io/name: alertmanager
+        app.kubernetes.io/part-of: observability
+      annotations:
+        argocd.argoproj.io/sync-wave: "0"
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/GaddipatiSriram/cplanes.git
+        targetRevision: HEAD
+        path: observability/alertmanager
+        helm:
+          releaseName: alertmanager
+      destination:
+        server: '{{server}}'
+        namespace: observability
+      syncPolicy:
+        automated:
+          selfHeal: true
+          prune: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+          - SkipDryRunOnMissingResource=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 10s
+            factor: 2
+            maxDuration: 3m

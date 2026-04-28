@@ -1,0 +1,142 @@
+# Auto-generated — DO NOT EDIT BY HAND
+# Consumer: {{ item.name }}
+# Default StorageClass: {{ item.default_sc }}
+# Source cluster: mgmt-storage  ·  fsid: {{ fsid }}
+#
+# Apply order:
+#   1. This bundle (creates namespace + secrets + configmap + StorageClasses)
+#   2. Rook-Ceph operator (external-cluster Helm values) — see step 5
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ item.consumer_namespace }}
+---
+# Mon endpoints — how the consumer CSI finds the mgmt-storage Ceph cluster
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rook-ceph-mon-endpoints
+  namespace: {{ item.consumer_namespace }}
+data:
+  data: "{{ mon_endpoints }}"
+  mapping: "{}"
+  maxMonId: "5"
+---
+# Admin-equivalent identity for the external connection
+apiVersion: v1
+kind: Secret
+metadata:
+  name: rook-ceph-mon
+  namespace: {{ item.consumer_namespace }}
+type: Opaque
+stringData:
+  cluster-name: "rook-ceph"
+  fsid: "{{ fsid }}"
+  admin-secret: "admin-secret"
+  mon-secret: "mon-secret"
+  ceph-username: "client.healthchecker"
+  ceph-secret: "{{ key_map['client.healthchecker'] }}"
+---
+# RBD CSI secrets
+apiVersion: v1
+kind: Secret
+metadata:
+  name: rook-csi-rbd-node
+  namespace: {{ item.consumer_namespace }}
+type: Opaque
+stringData:
+  userID: "csi-rbd-node"
+  userKey: "{{ key_map['client.csi-rbd-node'] }}"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: rook-csi-rbd-provisioner
+  namespace: {{ item.consumer_namespace }}
+type: Opaque
+stringData:
+  userID: "csi-rbd-provisioner"
+  userKey: "{{ key_map['client.csi-rbd-provisioner'] }}"
+---
+# CephFS CSI secrets
+apiVersion: v1
+kind: Secret
+metadata:
+  name: rook-csi-cephfs-node
+  namespace: {{ item.consumer_namespace }}
+type: Opaque
+stringData:
+  adminID: "csi-cephfs-node"
+  adminKey: "{{ key_map['client.csi-cephfs-node'] }}"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: rook-csi-cephfs-provisioner
+  namespace: {{ item.consumer_namespace }}
+type: Opaque
+stringData:
+  adminID: "csi-cephfs-provisioner"
+  adminKey: "{{ key_map['client.csi-cephfs-provisioner'] }}"
+---
+# StorageClass: ceph-rbd  (block, RWO)
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: ceph-rbd
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "{{ 'true' if item.default_sc == 'ceph-rbd' else 'false' }}"
+provisioner: {{ item.consumer_namespace }}.rbd.csi.ceph.com
+parameters:
+  clusterID: "{{ item.consumer_namespace }}"
+  pool: replicapool
+  imageFormat: "2"
+  imageFeatures: layering
+  csi.storage.k8s.io/provisioner-secret-name: rook-csi-rbd-provisioner
+  csi.storage.k8s.io/provisioner-secret-namespace: {{ item.consumer_namespace }}
+  csi.storage.k8s.io/controller-expand-secret-name: rook-csi-rbd-provisioner
+  csi.storage.k8s.io/controller-expand-secret-namespace: {{ item.consumer_namespace }}
+  csi.storage.k8s.io/node-stage-secret-name: rook-csi-rbd-node
+  csi.storage.k8s.io/node-stage-secret-namespace: {{ item.consumer_namespace }}
+  csi.storage.k8s.io/fstype: ext4
+allowVolumeExpansion: true
+reclaimPolicy: Delete
+---
+# StorageClass: cephfs  (file, RWX)
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: cephfs
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "{{ 'true' if item.default_sc == 'cephfs' else 'false' }}"
+provisioner: {{ item.consumer_namespace }}.cephfs.csi.ceph.com
+parameters:
+  clusterID: "{{ item.consumer_namespace }}"
+  fsName: myfs
+  pool: myfs-data0
+  csi.storage.k8s.io/provisioner-secret-name: rook-csi-cephfs-provisioner
+  csi.storage.k8s.io/provisioner-secret-namespace: {{ item.consumer_namespace }}
+  csi.storage.k8s.io/controller-expand-secret-name: rook-csi-cephfs-provisioner
+  csi.storage.k8s.io/controller-expand-secret-namespace: {{ item.consumer_namespace }}
+  csi.storage.k8s.io/node-stage-secret-name: rook-csi-cephfs-node
+  csi.storage.k8s.io/node-stage-secret-namespace: {{ item.consumer_namespace }}
+allowVolumeExpansion: true
+reclaimPolicy: Delete
+---
+# Reference for S3 consumers (Ceph RGW)
+# RGW on mgmt-storage listens via hostNetwork on port 80 — reachable at any
+# mgmt-storage node IP. Consumer apps use these as env vars / SDK config.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ceph-rgw-endpoint
+  namespace: {{ item.consumer_namespace }}
+data:
+  endpoint: "http://{{ storage_node_ip }}"
+  alt-endpoints: "http://10.10.4.100,http://10.10.4.101,http://10.10.4.102"
+  note: |
+    S3 credentials for the "admin" user are in the CephObjectStoreUser
+    "admin-user" on the mgmt-storage cluster; fetch via:
+      kubectl -n rook-ceph get secret rook-ceph-object-user-my-store-admin-user -o yaml
+    and create a matching Secret in this namespace if needed.

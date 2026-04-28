@@ -1,0 +1,14 @@
+apiVersion: v2
+name: rook-ceph-operator
+description: Umbrella chart wrapping rook-release/rook-ceph for the mgmt-storage cluster
+type: application
+version: 0.1.0
+appVersion: v1.15.5
+
+# This installs the Rook operator + CRDs only. The CephCluster CR + pools +
+# filesystem + object store are installed by the sibling `cluster/` chart.
+# See Rook docs: https://rook.io/docs/rook/v1.15/Helm-Charts/operator-chart/
+dependencies:
+  - name: rook-ceph
+    version: v1.15.5
+    repository: https://charts.rook.io/release

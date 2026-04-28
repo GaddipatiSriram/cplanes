@@ -1,0 +1,36 @@
+{{- /*
+IPAddressPool + L2Advertisement for this cluster's MetalLB pool.
+
+The two MetalLB CRDs are decoupled by design — IPAddressPool defines an
+IP range, L2Advertisement opts that pool into ARP-based announcement.
+Without the advertisement the pool sits idle.  We always want both, so
+they live in one template file.
+
+Names parameterized via .Values.pool.{name,advertisementName} so the
+ApplicationSet can pass per-cluster values without forking templates.
+
+Sync wave 1 — runs after the subchart's CRDs (wave 0 from the metallb
+subchart's hooks) so kubectl apply doesn't race the CRD registration.
+*/}}
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: {{ .Values.pool.name | quote }}
+  namespace: {{ .Release.Namespace | quote }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  addresses:
+    - {{ .Values.pool.range | quote }}
+  autoAssign: {{ .Values.pool.autoAssign }}
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: {{ .Values.pool.advertisementName | quote }}
+  namespace: {{ .Release.Namespace | quote }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  ipAddressPools:
+    - {{ .Values.pool.name | quote }}

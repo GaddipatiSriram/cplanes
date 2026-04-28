@@ -1,0 +1,33 @@
+{{- /*
+CephCluster CR in external mode.
+
+Named `rook-ceph` (not `rook-ceph-external`) — that's what the Rook
+operator expects when consuming the mon-endpoints ConfigMap (which is
+also named rook-ceph-mon-endpoints, not prefixed with the CR name).
+
+spec.external.enable: true tells the operator: don't create any Ceph
+daemons, just reconcile the client-side ConfigMaps/Services that CSI
+needs. Everything else in the spec is intentionally minimal — Rook's
+external mode ignores most of the CephCluster schema.
+*/ -}}
+apiVersion: ceph.rook.io/v1
+kind: CephCluster
+metadata:
+  name: rook-ceph
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  external:
+    enable: true
+  crashCollector:
+    disable: true
+  dataDirHostPath: /var/lib/rook
+  monitoring:
+    enabled: false
+  healthCheck:
+    daemonHealth:
+      mon:
+        disabled: false
+        interval: 45s

@@ -1,0 +1,167 @@
+# Values for the observability Prometheus umbrella chart.
+#
+# Every kube-prometheus-stack subcomponent that ISN'T the operator or
+# the Prometheus instance is turned off here.  Those components have
+# their own homes:
+#
+#   alertmanager.enabled         → observability/alertmanager/
+#   grafana.enabled              → observability/grafana/
+#   kubeStateMetrics.enabled     → observability-agents/kube-state-metrics/ (Pattern A)
+#   nodeExporter.enabled         → observability-agents/node-exporter/ (Pattern A)
+#   defaultRules                 → authored as PrometheusRule CRs alongside each component
+#   kubeApiServer / kubelet /    → ServiceMonitors authored alongside the
+#     kubeControllerManager /      services they monitor; the chart's
+#     coreDns / kubeDns /          built-in versions assume this single
+#     kubeEtcd / kubeScheduler /   cluster IS the world being observed,
+#     kubeProxy / kubeStateMetrics which is wrong for our central-backend
+#     / kubelet / nodeExporter     model (we'll add ServiceMonitors per
+#                                  workload cluster later).
+
+kube-prometheus-stack:
+  # =============================================================================
+  # CRDs — install them, the operator needs them
+  # =============================================================================
+  crds:
+    enabled: true
+
+  # =============================================================================
+  # Disabled subcomponents
+  # =============================================================================
+  alertmanager:
+    enabled: false
+
+  grafana:
+    enabled: false
+
+  kubeStateMetrics:
+    enabled: false
+
+  nodeExporter:
+    enabled: false
+
+  # Built-in PrometheusRule defaults assume a self-observed cluster; we
+  # author rules per-component as PrometheusRule CRs in the relevant chart.
+  defaultRules:
+    create: false
+
+  # Built-in ServiceMonitors that target this cluster's control-plane
+  # components — turned off for the same reason.  When we want them, we
+  # add them as PodMonitor/ServiceMonitor CRs in the appropriate chart.
+  kubeApiServer:
+    enabled: false
+  kubelet:
+    enabled: false
+  kubeControllerManager:
+    enabled: false
+  coreDns:
+    enabled: false
+  kubeDns:
+    enabled: false
+  kubeEtcd:
+    enabled: false
+  kubeScheduler:
+    enabled: false
+  kubeProxy:
+    enabled: false
+  kubernetesServiceMonitors:
+    enabled: false
+
+  prometheus-windows-exporter:
+    enabled: false
+
+  thanosRuler:
+    enabled: false
+
+  # =============================================================================
+  # Prometheus operator (ENABLED) — manages Prometheus, Alertmanager,
+  # ThanosRuler CRs across the cluster.  Watches ServiceMonitor /
+  # PodMonitor / PrometheusRule across all namespaces.
+  # =============================================================================
+  prometheusOperator:
+    enabled: true
+    # Right-size for homelab — operator is a steady-state low-CPU controller.
+    resources:
+      requests:
+        cpu: 25m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+    # The operator's own admission webhook needs a serving cert.  The
+    # subchart's default uses a self-signed cert generated at install
+    # time — fine for now.  When forge/cert-manager grows a vault-pki
+    # ClusterIssuer that's reachable from mgmt-observability, switch
+    # admissionWebhooks.certManager.enabled to true.
+    admissionWebhooks:
+      certManager:
+        enabled: false
+
+  # =============================================================================
+  # Prometheus instance (ENABLED)
+  # =============================================================================
+  prometheus:
+    enabled: true
+    prometheusSpec:
+      # ----------------- replicas + retention -----------------
+      replicas: 1
+      retention: 15d
+      retentionSize: "45GiB"  # leave headroom on the 50Gi PVC
+
+      # ----------------- discovery scope -----------------
+      # Watch the whole cluster for ServiceMonitor/PodMonitor/PrometheusRule
+      # CRs (across all namespaces).  Pre-condition for "any chart can
+      # ship a ServiceMonitor and Prometheus picks it up automatically."
+      # The selectorNilUsesHelmValues:false override means an empty
+      # selector matches everything (default upstream behavior is to
+      # match only resources labeled release=<release-name>, which is
+      # too tight for our use case).
+      serviceMonitorSelectorNilUsesHelmValues: false
+      podMonitorSelectorNilUsesHelmValues: false
+      probeSelectorNilUsesHelmValues: false
+      ruleSelectorNilUsesHelmValues: false
+      scrapeConfigSelectorNilUsesHelmValues: false
+
+      # ----------------- multi-cluster ingest -----------------
+      # remote-write receiver: workload clusters' Prometheus agents
+      # remote_write here.  No agent yet, but flipping the receiver on
+      # at server-stand-up is cheaper than restarting later.
+      enableRemoteWriteReceiver: true
+
+      # ----------------- storage -----------------
+      storageSpec:
+        volumeClaimTemplate:
+          spec:
+            storageClassName: ceph-rbd
+            accessModes: [ReadWriteOnce]
+            resources:
+              requests:
+                storage: 50Gi
+
+      # ----------------- resources -----------------
+      resources:
+        requests:
+          cpu: 250m
+          memory: 1Gi
+        limits:
+          cpu: 1000m
+          memory: 2Gi
+
+      # ----------------- external label -----------------
+      # Tags every metric scraped here so when other clusters remote-write
+      # in, queries can disambiguate (e.g., `up{cluster="mgmt-observability"}`).
+      externalLabels:
+        cluster: mgmt-observability
+
+    # The operator creates a Service for Prometheus automatically; we
+    # leave it ClusterIP.  Grafana reaches it via cluster-internal DNS
+    # (prometheus-operated.observability.svc:9090).  No ingress —
+    # Prometheus's UI is admin-only, accessed via kubectl port-forward.
+    service:
+      type: ClusterIP
+
+  # =============================================================================
+  # Common chart settings
+  # =============================================================================
+  fullnameOverride: prometheus
+  commonLabels:
+    app.kubernetes.io/part-of: observability

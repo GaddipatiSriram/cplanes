@@ -1,0 +1,73 @@
+---
+# Step 4 — Generate external-cluster config via Rook's official script.
+#
+# Wraps upstream `create-external-cluster-resources.py` (pinned to
+# release-1.15). Output: a sourceable bash env file that Step 5 feeds into
+# `import-external-cluster.sh` per consumer.
+#
+# Why this approach:
+#   The script does ~500 lines of Ceph-specific wiring (msgr2 address tuples,
+#   rados namespaces, subvolume groups, RGW endpoint handling, user cap
+#   validation, cephx key minting). Hand-rolled templates miss corners —
+#   the previous attempt hung during cephx auth negotiation because mon
+#   endpoints were v1 (port 6789) only. The script emits v2 (port 3300)
+#   tuples when --v2-port-enable is set.
+
+- name: Generate external-cluster env file via Rook's official script
+  hosts: localhost
+  gather_facts: false
+  vars:
+    kubeconfig_storage: "/root/cluster/kubeconfig-mgmt-storage"
+    source_ns: rook-ceph
+    consumer_ns: rook-ceph-external
+    rbd_pool: replicapool
+    cephfs_name: myfs
+    rgw_endpoint: "10.10.4.100:80"
+    script_local: "{{ playbook_dir }}/scripts/create-external-cluster-resources.py"
+    script_remote: "/tmp/create-external-cluster-resources.py"
+    env_out: "{{ playbook_dir }}/generated/external-cluster.env"
+  environment:
+    KUBECONFIG: "{{ kubeconfig_storage }}"
+  tasks:
+    - name: Ensure output dir exists
+      ansible.builtin.file:
+        path: "{{ env_out | dirname }}"
+        state: directory
+        mode: "0755"
+
+    - name: Resolve toolbox pod name
+      ansible.builtin.command: kubectl -n {{ source_ns }} get pod -l app=rook-ceph-tools -o jsonpath='{.items[0].metadata.name}'
+      register: tb
+      changed_when: false
+
+    - name: Copy generator script into toolbox pod
+      ansible.builtin.command: >
+        kubectl -n {{ source_ns }} cp {{ script_local }}
+        {{ tb.stdout }}:{{ script_remote }}
+      changed_when: false
+
+    - name: Run generator (format=bash, v2 port enabled)
+      ansible.builtin.command: >
+        kubectl -n {{ source_ns }} exec {{ tb.stdout }} --
+        python3 {{ script_remote }}
+          --format bash
+          --namespace {{ consumer_ns }}
+          --rbd-data-pool-name {{ rbd_pool }}
+          --cephfs-filesystem-name {{ cephfs_name }}
+          --rgw-endpoint {{ rgw_endpoint }}
+          --v2-port-enable
+          --skip-monitoring-endpoint
+      register: gen
+      changed_when: false
+
+    - name: Write env file
+      ansible.builtin.copy:
+        dest: "{{ env_out }}"
+        content: "{{ gen.stdout }}\n"
+        mode: "0600"
+
+    - ansible.builtin.debug:
+        msg:
+          - "Wrote {{ env_out }}"
+          - "Preview:"
+          - "{{ gen.stdout_lines[:10] }}"

@@ -1,0 +1,40 @@
+{{- /*
+StorageClass: ceph-rbd — RBD block, RWO.
+
+Parameters must match the live state on already-installed consumers so
+SSA adoption is clean (remember: StorageClass.parameters is immutable
+after creation). On fresh consumers this is a straight create.
+
+Provisioner name uses `rook-ceph-external.` (NOT the namespace) because
+that's the CSI driver name the operator registers when in external mode.
+Matches what's live on OKD.
+
+clusterID references the `rook-ceph` CephCluster CR above. Matches live.
+
+Secret name/namespace params point at the cephx Secrets bootstrapped
+out-of-band from generated/<cluster>-bundle.yaml.
+*/ -}}
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: ceph-rbd
+  labels:
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "false"
+provisioner: rook-ceph-external.rbd.csi.ceph.com
+parameters:
+  clusterID: rook-ceph-external
+  pool: replicapool
+  imageFormat: "2"
+  imageFeatures: layering
+  csi.storage.k8s.io/fstype: ext4
+  csi.storage.k8s.io/provisioner-secret-name: rook-csi-rbd-provisioner
+  csi.storage.k8s.io/provisioner-secret-namespace: {{ .Release.Namespace }}
+  csi.storage.k8s.io/controller-expand-secret-name: rook-csi-rbd-provisioner
+  csi.storage.k8s.io/controller-expand-secret-namespace: {{ .Release.Namespace }}
+  csi.storage.k8s.io/node-stage-secret-name: rook-csi-rbd-node
+  csi.storage.k8s.io/node-stage-secret-namespace: {{ .Release.Namespace }}
+allowVolumeExpansion: true
+reclaimPolicy: Delete

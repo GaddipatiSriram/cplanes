@@ -1,0 +1,68 @@
+# ApplicationSet — Keycloak on every tier=mgmt cluster.
+#
+# Pattern B umbrella chart: keycloakx 26.x + bitnami/postgresql.
+# Admin creds from Vault via ExternalSecret. Ingress at
+# keycloak.apps.mgmt-forge.engatwork.com.
+#
+# Prerequisites (Synced+Healthy first):
+#   - cert-manager       (wave 0)
+#   - ingress-nginx      (wave 0)
+#   - vault              (wave 1, post-install playbook done)
+#   - external-secrets   (wave 1)
+#   - Vault path kv/forge/keycloak populated with KC_BOOTSTRAP_ADMIN_* keys
+#
+# Apply once:
+#   kubectl --context admin apply -f argo-applications/sre/forge/keycloak-appset.yaml
+
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: keycloak
+  namespace: argocd-sre
+spec:
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            role: forge
+  template:
+    metadata:
+      name: 'keycloak-{{name}}'
+      labels:
+        app.kubernetes.io/name: keycloak
+        app.kubernetes.io/part-of: platform
+      annotations:
+        argocd.argoproj.io/sync-wave: "2"
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/GaddipatiSriram/cplanes.git
+        targetRevision: HEAD
+        path: identity/keycloak
+        helm:
+          releaseName: keycloak
+      destination:
+        server: '{{server}}'
+        namespace: keycloak
+      # StatefulSet (postgresql) + volumeClaimTemplates normalization — same
+      # pattern as vault, ignore PVC template fields.
+      ignoreDifferences:
+        - group: apps
+          kind: StatefulSet
+          name: keycloak-postgresql
+          jsonPointers:
+            - /spec/volumeClaimTemplates
+      syncPolicy:
+        automated:
+          selfHeal: true
+          prune: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+          - SkipDryRunOnMissingResource=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 10s
+            factor: 2
+            maxDuration: 3m

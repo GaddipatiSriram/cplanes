@@ -1,0 +1,34 @@
+# Values for the Rook-Ceph operator umbrella chart on mgmt-storage.
+# Subchart name: `rook-ceph` — must match Chart.yaml dependency.
+#
+# Upstream: https://github.com/rook/rook/blob/v1.15.5/deploy/charts/rook-ceph/values.yaml
+#
+# This chart installs ONLY:
+#   - Rook operator Deployment
+#   - Ceph CRDs (cluster-scoped)
+#   - CSI plugins (RBD + CephFS)
+#
+# The CephCluster CR + pools + FS + RGW live in the sibling cluster/ chart.
+
+rook-ceph:
+  csi:
+    # Enable CSI drivers on the storage-server cluster so local workloads
+    # (if any) can also use the storage. Consumer clusters get their own
+    # CSI via cluster/rook-ceph-external/.
+    enableRbdDriver: true
+    enableCephfsDriver: true
+    enableGrpcMetrics: false
+
+    # Tight cluster (3 nodes) — one less replica is plenty
+    provisionerReplicas: 2
+
+  # Don't install the discover daemonset — we specify OSD devices
+  # explicitly in the cluster chart.
+  enableDiscoveryDaemon: false
+
+  # Tolerate the control-plane taint so we can place operator/CSI pods
+  # on all 3 nodes in this single-CP homelab.
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
