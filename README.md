@@ -92,12 +92,91 @@ ArgoCD targets clusters via labels on the cluster Secret. Selector patterns:
 | mgmt-workload | 11 (.120) | `tier=mgmt role=workload storage=ceph-rbd` | ARC controller + runners, ephemeral workloads |
 | dev-{web,apps,data} (planned) | 20-22 | `tier=dev role={web,apps,data}` | Application workloads |
 
+## Cluster-side: pointing ArgoCD at this repo
+
+ArgoCD on OKD (in `argocd-sre` and `argocd-devops` namespaces) needs to know how to fetch this repo's content. The setup depends on repo visibility.
+
+### Public repo (current state) — no Secret needed
+
+The repo is Public, so ArgoCD's `repo-server` clones anonymously over HTTPS. No `repository` Secret required. AppSets and Applications reference `https://github.com/GaddipatiSriram/cplanes.git` directly and reconcile within ~3 min of being applied.
+
+To apply ApplicationSets/Applications:
+
+```bash
+# One-time, to bootstrap argocd-sre with all the AppSets defined here
+kubectl --context admin apply -f argo-applications/sre/bootstrap-sa.yaml      # SA + CRB on a target cluster (per-cluster, see argo-applications/README.md)
+find argo-applications/sre -name '*-appset.yaml' -o -name '*-app.yaml' \
+    | xargs -I{} kubectl --context admin apply -f {}
+```
+
+After this, every Application's `STATUS=Synced` confirms the repo is reachable:
+
+```bash
+kubectl --context admin get applications -n argocd-sre \
+    -o custom-columns=NAME:.metadata.name,REPO:.spec.source.repoURL,STATUS:.status.sync.status,HEALTH:.status.health.status
+```
+
+### If you make the repo Private
+
+Apply a `repository` Secret to each ArgoCD instance namespace. This file is **gitignored** — never commit it.
+
+```yaml
+# argo-applications/sre/cplanes-secret-sre.yaml — gitignored
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cplanes-repo
+  namespace: argocd-sre              # also create one in argocd-devops
+  labels:
+    argocd.argoproj.io/secret-type: repository
+type: Opaque
+stringData:
+  type: git
+  url: https://github.com/GaddipatiSriram/cplanes.git
+  username: GaddipatiSriram
+  password: <github_pat_with_repo_read_scope>   # rotate via github.com/settings/tokens
+```
+
+Apply:
+
+```bash
+kubectl --context admin apply -n argocd-sre    -f argo-applications/sre/cplanes-secret-sre.yaml
+kubectl --context admin apply -n argocd-devops -f argo-applications/sre/cplanes-secret-devops.yaml
+```
+
+ArgoCD matches Secret → Application by URL prefix. Once applied, every Application that references `cplanes.git` uses these creds.
+
+### Hardening for production
+
+The cleartext-PAT pattern above is acceptable for a homelab; for real use, migrate to **Sealed Secrets** or **SOPS** (commit encrypted Secret to git → operator decrypts on cluster). Tracked under `secrets/vault/todo.md`.
+
+### Common failure: stale or revoked PAT
+
+Symptom in `repo-server` logs:
+
+```
+fatal: could not read Username for 'https://github.com': terminal prompts disabled
+```
+
+or:
+
+```
+remote: invalid credentials
+```
+
+Means the PAT in the Secret is revoked or never matched. Two recoveries:
+
+1. **If repo is Public**: just `kubectl delete secret cplanes-repo -n argocd-sre` (and the same in `argocd-devops`). ArgoCD falls back to anonymous fetch.
+2. **If repo is Private**: rotate the PAT on github.com, update the Secret, re-apply.
+
+---
+
 ## Conventions
 
 - **No `kubectl apply` against managed clusters** — everything via ArgoCD once the cluster is registered.
 - **Cluster labels are the source of truth** for what deploys where. Defined in `cluster/k8s-bstrp/group_vars/<cluster>.yml`, propagated by Phase 8 of `bootstrap-k8s.yml`.
 - **Sync waves** (`argocd.argoproj.io/sync-wave`): wave 0 = CRDs/foundations, wave 1 = identity, wave 2 = platform apps, wave 3 = workloads.
-- **Secrets in git: never.** Use ESO + Vault for everything app-facing. Repo creds Secrets (`layers-secret-*.yaml`) are gitignored.
+- **Secrets in git: never.** Use ESO + Vault for everything app-facing. Repo creds Secrets (`*-secret-*.yaml`) are gitignored.
 - **Homelab passwords** (`unix` / `pfsense`) are demo-only.
 
 ## Quick links
