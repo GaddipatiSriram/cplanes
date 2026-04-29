@@ -1,0 +1,55 @@
+# Values for the argocd-devops instance — application GitOps controller.
+# Subchart name: `argo-cd` — must match Chart.yaml dependency.
+#
+# Architecture:
+#   - Co-resident with argocd-sre on mgmt-control, separate namespace
+#     (`argocd-devops`). Same chart, different values — two namespaces
+#     gives clean separation between platform GitOps (SRE) and app
+#     GitOps (DevOps team).
+#   - Cluster-scoped install (same fix as values-sre.yaml).
+#   - UI at https://argocd-devops.apps.mgmt-control.engatwork.com
+
+argo-cd:
+  global:
+    domain: argocd-devops.apps.mgmt-control.engatwork.com
+
+  configs:
+    params:
+      server.insecure: true
+    cm:
+      application.instanceLabelKey: argocd.argoproj.io/instance
+      timeout.reconciliation: 180s
+    rbac:
+      policy.default: role:readonly
+
+  server:
+    replicas: 1
+    ingress:
+      enabled: true
+      ingressClassName: nginx
+      annotations:
+        cert-manager.io/cluster-issuer: letsencrypt-prod
+        nginx.ingress.kubernetes.io/backend-protocol: HTTP
+      hostname: argocd-devops.apps.mgmt-control.engatwork.com
+      tls: true
+
+  controller:
+    replicas: 1
+
+  repoServer:
+    replicas: 1
+
+  applicationSet:
+    enabled: true
+    replicas: 1
+
+  notifications:
+    enabled: false
+
+  redis-ha:
+    enabled: false
+  redis:
+    enabled: true
+
+  dex:
+    enabled: false

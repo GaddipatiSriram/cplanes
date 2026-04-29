@@ -1,6 +1,6 @@
 apiVersion: v2
-name: argo-workflows-okd
-description: Argo Workflows on OKD (argocd-sre / in-cluster) — workflow engine for CI/CD and batch DAGs
+name: argo-workflows
+description: Argo Workflows on mgmt-control — workflow engine for CI/CD and batch DAGs
 type: application
 version: 0.1.0
 appVersion: "3.6.2"

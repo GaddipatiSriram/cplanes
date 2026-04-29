@@ -1,0 +1,37 @@
+# Values for the actions-runner-controller umbrella chart on mgmt-workload.
+# Subchart name: `gha-runner-scale-set-controller` — must match Chart.yaml dependency.
+#
+# Architecture (Shape 1 — single cluster):
+#   - Controller in `arc-systems` namespace on mgmt-workload
+#   - Listens for AutoscalingRunnerSet CRs cluster-wide
+#   - Per-repo / per-org runner scale sets (gha-runner-scale-set chart)
+#     are deployed as separate Apps into `arc-runners-<owner>` namespaces.
+#   - GitHub PAT or App credentials are loaded out-of-band into a Secret
+#     in each runner scale set's namespace; AppSet does NOT create them.
+#
+# ARC is not cross-cluster-capable: the controller and the runners must
+# share a cluster. mgmt-workload was sized to host both — runners burst
+# during CI runs, controller is small and durable enough for a single
+# replica.
+
+gha-runner-scale-set-controller:
+  replicaCount: 1
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  flags:
+    # Watch every namespace for runner scale sets — the default. Pin
+    # explicitly so a future change in chart defaults can't silently
+    # narrow the scope.
+    watchSingleNamespace: ""
+
+  metrics:
+    # Default disabled. Re-enable once mgmt-observability has a
+    # ServiceMonitor target ready.
+    controllerManagerAddr: ":8080"

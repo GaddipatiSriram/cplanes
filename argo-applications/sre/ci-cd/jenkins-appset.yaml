@@ -1,0 +1,62 @@
+# ApplicationSet — Jenkins on every role=control cluster (currently: mgmt-control).
+#
+# One-off Application replaced by AppSet so future control-plane clusters
+# auto-onboard.
+#
+# Apply once:
+#   kubectl --context admin apply -f argo-applications/sre/ci-cd/jenkins-appset.yaml
+
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: jenkins
+  namespace: argocd-sre
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            role: control
+  template:
+    metadata:
+      name: 'jenkins-{{.name}}'
+      labels:
+        app.kubernetes.io/name: jenkins
+        app.kubernetes.io/part-of: platform
+      annotations:
+        argocd.argoproj.io/sync-wave: "0"
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/GaddipatiSriram/cplanes.git
+        targetRevision: HEAD
+        path: ci-cd/jenkins
+        helm:
+          releaseName: jenkins
+      destination:
+        server: '{{.server}}'
+        namespace: jenkins
+      # Jenkins StatefulSet PVC template normalizes out — ignore so Argo doesn't
+      # thrash on it every sync (same pattern as vault/keycloak).
+      ignoreDifferences:
+        - group: apps
+          kind: StatefulSet
+          name: jenkins
+          jsonPointers:
+            - /spec/volumeClaimTemplates
+      syncPolicy:
+        automated:
+          selfHeal: true
+          prune: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+          - SkipDryRunOnMissingResource=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 10s
+            factor: 2
+            maxDuration: 3m

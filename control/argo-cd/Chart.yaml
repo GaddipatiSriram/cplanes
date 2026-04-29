@@ -1,0 +1,11 @@
+apiVersion: v2
+name: argo-cd-mgmt-control
+description: ArgoCD on mgmt-control (vanilla kubeadm) — replaces OperatorHub-installed OpenShift GitOps. Two instances deploy this chart with different values files (argocd-sre, argocd-devops).
+type: application
+version: 0.1.0
+appVersion: "v2.13.1"
+
+dependencies:
+  - name: argo-cd
+    version: "7.7.5"
+    repository: https://argoproj.github.io/argo-helm

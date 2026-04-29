@@ -1,10 +1,10 @@
 # ApplicationSet — MetalLB on every workload-capable cluster.
 #
 # Pattern A (selector tier In [mgmt,dev], role NotIn [storage]).
-# Matches mgmt-forge + mgmt-observability today; dev-{apps,data,web} when
-# they're registered.  Excludes mgmt-storage (Ceph server) and mgmt-core
-# (foundational, off-GitOps — has manual MetalLB serving CoreDNS VIP) and
-# OKD (no tier label — OpenShift has its own router/keepalived).
+# Matches mgmt-control + mgmt-forge + mgmt-observability today; mgmt-workload
+# and dev-{apps,data,web} when they're registered.  Excludes mgmt-storage
+# (Ceph server) and mgmt-core (foundational, off-GitOps — has manual MetalLB
+# serving CoreDNS VIP).
 #
 # The MetalLB chart deploys controller + speaker DaemonSet + admission
 # webhook + an IPAddressPool/L2Advertisement pair sized for the cluster's
@@ -55,14 +55,17 @@ spec:
             # cluster/k8s-bstrp/group_vars/<cluster>.yml — extend both
             # files together when a new cluster joins.
             # Pool ranges per cluster:
-            #   VLAN 11 DevOps:  OKD (no MetalLB) + mgmt-workload = .211-.220
+            #   VLAN 11 DevOps:  mgmt-control = .200-.210, mgmt-workload = .211-.220
+            #                    (OKD removed; its old HAProxy VIPs .50/.51 stay
+            #                     reserved on pfSense, disjoint from MetalLB)
             #   VLAN 12 Observ:  mgmt-observability = .200-.220
             #                    (mgmt-search services co-locate here)
             #   VLAN 13 Storage: mgmt-storage (no MetalLB)
             #                    (mgmt-data services co-locate on mgmt-forge)
             #   VLAN 14 Forge:   mgmt-forge = .200-.220
             - name: pool.range
-              value: '{{- if eq .name "mgmt-forge"           -}}10.10.5.200-10.10.5.220
+              value: '{{- if eq .name "mgmt-control"         -}}10.10.2.200-10.10.2.210
+                      {{- else if eq .name "mgmt-forge"      -}}10.10.5.200-10.10.5.220
                       {{- else if eq .name "mgmt-observability" -}}10.10.3.200-10.10.3.220
                       {{- else if eq .name "mgmt-workload"   -}}10.10.2.211-10.10.2.220
                       {{- else if eq .name "dev-web"         -}}10.20.1.200-10.20.1.220

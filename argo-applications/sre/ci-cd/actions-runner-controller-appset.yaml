@@ -1,0 +1,59 @@
+# ApplicationSet — actions-runner-controller on every role=workload cluster
+# (currently: mgmt-workload).
+#
+# ARC controller-only — runner scale sets are separate Applications, one per
+# GitHub repo/org, deployed by argocd-devops once GH credentials are loaded.
+#
+# Shape 1: controller and runners share the same cluster. ARC is not
+# cross-cluster-capable, so this AppSet exclusively targets workload-plane
+# clusters.
+#
+# Apply once:
+#   kubectl --context admin apply -f argo-applications/sre/ci-cd/actions-runner-controller-appset.yaml
+
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: actions-runner-controller
+  namespace: argocd-sre
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            role: workload
+  template:
+    metadata:
+      name: 'actions-runner-controller-{{.name}}'
+      labels:
+        app.kubernetes.io/name: actions-runner-controller
+        app.kubernetes.io/part-of: platform
+      annotations:
+        argocd.argoproj.io/sync-wave: "0"
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/GaddipatiSriram/cplanes.git
+        targetRevision: HEAD
+        path: ci-cd/actions-runner-controller
+        helm:
+          releaseName: arc
+      destination:
+        server: '{{.server}}'
+        namespace: arc-systems
+      syncPolicy:
+        automated:
+          selfHeal: true
+          prune: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+          - SkipDryRunOnMissingResource=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 10s
+            factor: 2
+            maxDuration: 3m

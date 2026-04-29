@@ -54,7 +54,8 @@ spec:
               controller:
                 service:
                   annotations:
-                    metallb.universe.tf/loadBalancerIPs: '{{- if eq .name "mgmt-forge"             -}}10.10.5.201
+                    metallb.universe.tf/loadBalancerIPs: '{{- if eq .name "mgmt-control"          -}}10.10.2.200
+                                                          {{- else if eq .name "mgmt-forge"         -}}10.10.5.201
                                                           {{- else if eq .name "mgmt-observability" -}}10.10.3.201
                                                           {{- else if eq .name "mgmt-workload"     -}}10.10.2.211
                                                           {{- else if eq .name "dev-web"           -}}10.20.1.201

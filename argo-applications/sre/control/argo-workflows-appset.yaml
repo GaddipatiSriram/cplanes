@@ -1,0 +1,54 @@
+# ApplicationSet — Argo Workflows on every role=control cluster (currently: mgmt-control).
+#
+# One-off Application replaced by AppSet so future control-plane clusters
+# (e.g., a second mgmt-control in a DR region) auto-onboard.
+#
+# Apply once:
+#   kubectl --context admin apply -f argo-applications/sre/control/argo-workflows-appset.yaml
+
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: argo-workflows
+  namespace: argocd-sre
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            role: control
+  template:
+    metadata:
+      name: 'argo-workflows-{{.name}}'
+      labels:
+        app.kubernetes.io/name: argo-workflows
+        app.kubernetes.io/part-of: platform
+      annotations:
+        argocd.argoproj.io/sync-wave: "0"
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/GaddipatiSriram/cplanes.git
+        targetRevision: HEAD
+        path: control/argo-workflows
+        helm:
+          releaseName: argo-workflows
+      destination:
+        server: '{{.server}}'
+        namespace: argo-workflows
+      syncPolicy:
+        automated:
+          selfHeal: true
+          prune: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+          - SkipDryRunOnMissingResource=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 10s
+            factor: 2
+            maxDuration: 3m

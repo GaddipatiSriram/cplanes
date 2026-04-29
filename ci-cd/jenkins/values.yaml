@@ -1,47 +1,18 @@
-# Values for the Jenkins umbrella chart on OKD.
+# Values for the Jenkins umbrella chart on mgmt-control.
 # Subchart name: `jenkins` — must match Chart.yaml dependency.
 #
 # Architecture:
 #   - Single controller pod (StatefulSet) with 20Gi ceph-rbd PVC
-#   - UI at https://jenkins.apps.mgmt-devops-okd.engatwork.com
+#   - UI at https://jenkins.apps.mgmt-control.engatwork.com
+#   - cert-manager + ingress-nginx (Pattern A)
 #   - Admin creds chart-generated; migrate to Vault/ESO later (same pattern
 #     as forge/keycloak)
-#
-# === GOTCHAS for OKD ===
-# 1. runAsUser: null — OKD's restricted-v2 SCC forbids fixed UIDs. Letting
-#    OKD assign a UID from the project's SCC range is the simplest fix.
-#    If the chart still fails on SCC, grant the jenkins SA the
-#    `nonroot-v2` SCC:  oc adm policy add-scc-to-user nonroot-v2 -z jenkins -n jenkins
-# 2. Ingress → Route auto-conversion: OKD's ingress-operator wraps any
-#    Ingress as a Route. `route.openshift.io/termination: edge` tells it to
-#    terminate TLS at the router with the cluster wildcard cert.
-# 3. Storage: ceph-rbd is RWO + durable. Do NOT use local-path — the
-#    previous standalone install (now deleted) got stuck with PVC Pending
-#    because local-path's WaitForFirstConsumer + the pod's stuck state
-#    deadlocked each other.
+#   - ceph-rbd via the rook-ceph-external CSI bundle on mgmt-control
 
 jenkins:
   controller:
-    # Let OKD SCC pick the UID/GID from the project's allocated range.
-    runAsUser: null
-    fsGroup: null
-
-    # OKD SCCs enforce non-root policy themselves. runAsUser: null lets OKD
-    # assign a UID from the SCC range. Do NOT set runAsNonRoot: true — it
-    # clashes with the chart's init container that needs UID 0 to chown
-    # /var/jenkins_home on first start (anyuid SCC granted to the jenkins SA
-    # permits that).
-    containerSecurityContext:
-      runAsUser: null
-      capabilities:
-        drop:
-          - ALL
-      allowPrivilegeEscalation: false
-      readOnlyRootFilesystem: false
-
-    # Chart 5.9.18 ships plugin defaults that require Jenkins >= 2.541.1.
-    # Pin explicitly so chart<->plugins<->image stay consistent; the `lts-jdk17`
-    # tag drifts to whatever the Jenkins project currently calls LTS.
+    # Vanilla kubeadm — no SCCs to satisfy; default chart UID/GID stand.
+    # (OKD's runAsUser:null kludge is reversed.)
     image:
       tag: "2.541.1-jdk17"
 
@@ -49,10 +20,14 @@ jenkins:
 
     ingress:
       enabled: true
-      ingressClassName: openshift-default
-      hostName: jenkins.apps.mgmt-devops-okd.engatwork.com
+      ingressClassName: nginx
+      hostName: jenkins.apps.mgmt-control.engatwork.com
       annotations:
-        route.openshift.io/termination: edge
+        cert-manager.io/cluster-issuer: letsencrypt-prod
+      tls:
+        - hosts:
+            - jenkins.apps.mgmt-control.engatwork.com
+          secretName: jenkins-tls
 
     # Admin creds: chart generates random password on first install, stored
     # in Secret/jenkins. Retrieve via:
@@ -62,12 +37,6 @@ jenkins:
     admin:
       createSecret: true
 
-    # Plugin list omitted — chart default set is coherent with the default
-    # image tag. Pinning plugins without also pinning a matching core version
-    # caused "plugin requires Jenkins X.Y.Z" errors on first boot. Re-pin
-    # AFTER we pin controller.image.tag to a specific LTS.
-
-    # Resource requests — small; bump once we know real workload shape.
     resources:
       requests:
         cpu: 100m
@@ -76,16 +45,10 @@ jenkins:
         cpu: 2
         memory: 2Gi
 
-  # Agent pods (dynamic, kubernetes plugin). Defaults work on OKD.
   agent:
     enabled: true
 
   persistence:
-    # ceph-rbd: RWO block volume from the central Rook-Ceph cluster on
-    # mgmt-storage. See storage/rook-ceph/README.md for the issue log.
-    # Issue #1 (OSDs advertising pod IPs) was closed by adding
-    # network.addressRanges.public/cluster = 10.10.4.0/24 to the central
-    # CephCluster and bouncing osd.0 + osd.1 to re-register with host IPs.
     enabled: true
     storageClass: ceph-rbd
     size: 20Gi

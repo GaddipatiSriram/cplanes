@@ -1,6 +1,6 @@
 apiVersion: v2
-name: jenkins-okd
-description: Jenkins on OKD (argocd-sre / in-cluster) — official jenkinsci Helm chart
+name: jenkins
+description: Jenkins on mgmt-control — official jenkinsci Helm chart
 type: application
 version: 0.1.0
 appVersion: "LTS"

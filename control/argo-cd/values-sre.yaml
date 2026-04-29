@@ -1,0 +1,74 @@
+# Values for the argocd-sre instance — platform GitOps controller.
+# Subchart name: `argo-cd` — must match Chart.yaml dependency.
+#
+# Architecture:
+#   - Cluster-scoped install: argocd-sre manages CRDs, ClusterRoles, and
+#     arbitrary namespaces across the entire homelab (mgmt-control,
+#     mgmt-workload, mgmt-storage, mgmt-forge, mgmt-observ, future EKS).
+#   - This is the explicit fix for the OKD-era namespace-scoped quirk
+#     (project_argocd_sre_namespace_scoped.md). On vanilla helm the
+#     default IS cluster-scoped; we just keep it that way.
+#   - UI at https://argocd-sre.apps.mgmt-control.engatwork.com
+#   - cert-manager + ingress-nginx (Pattern A baseline on mgmt-control)
+#   - HA disabled initially (single replica per component) — flip when
+#     load justifies it; mgmt-control is durable but low-traffic.
+
+argo-cd:
+  global:
+    domain: argocd-sre.apps.mgmt-control.engatwork.com
+
+  configs:
+    params:
+      # Required when ingress terminates TLS and the server runs HTTP-only.
+      server.insecure: true
+
+    cm:
+      # ApplicationSet templating uses Go templates; ensure exec env is
+      # available for the cluster generator.
+      application.instanceLabelKey: argocd.argoproj.io/instance
+      # Allow Applications in any namespace to reference repos registered
+      # with this controller.
+      timeout.reconciliation: 180s
+
+    rbac:
+      # Default policy: read-only for authenticated users, admin via
+      # Keycloak group claim once OIDC is wired (TODO: forge/todo.md C7).
+      policy.default: role:readonly
+
+  # Server: single replica + ingress (cert-manager-issued cert via
+  # ingress-nginx). HA can flip controller/repoServer/applicationSet
+  # replicas to 2+ later.
+  server:
+    replicas: 1
+    ingress:
+      enabled: true
+      ingressClassName: nginx
+      annotations:
+        cert-manager.io/cluster-issuer: letsencrypt-prod
+        nginx.ingress.kubernetes.io/backend-protocol: HTTP
+      hostname: argocd-sre.apps.mgmt-control.engatwork.com
+      tls: true
+
+  controller:
+    replicas: 1
+
+  repoServer:
+    replicas: 1
+
+  applicationSet:
+    enabled: true
+    replicas: 1
+
+  notifications:
+    enabled: false   # wire to Slack/email after Vault-backed creds land
+
+  # Redis-HA off; single redis is fine for this scale.
+  redis-ha:
+    enabled: false
+  redis:
+    enabled: true
+
+  # Dex disabled — OIDC will be Keycloak direct via configs.cm once the
+  # forge realm has the argocd client.
+  dex:
+    enabled: false
