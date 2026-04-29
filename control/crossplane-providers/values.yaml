@@ -51,7 +51,7 @@ provider:
   #                                          GroupMembershipProtocolMapper
   #   group.keycloak.crossplane.io           Group, DefaultGroups
   keycloak:
-    package: "xpkg.upbound.io/crossplane-contrib/provider-keycloak:v3.4.0"
+    package: "xpkg.upbound.io/crossplane-contrib/provider-keycloak:v1.6.0"
 
 providerConfig:
   vault:

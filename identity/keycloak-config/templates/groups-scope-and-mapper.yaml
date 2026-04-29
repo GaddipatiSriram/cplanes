@@ -21,7 +21,7 @@ spec:
   providerConfigRef:
     name: {{ .Values.providerConfigRef.name | quote }}
 ---
-apiVersion: openidclient.keycloak.crossplane.io/v1alpha1
+apiVersion: openidgroup.keycloak.crossplane.io/v1alpha1
 kind: GroupMembershipProtocolMapper
 metadata:
   name: groups-mapper

@@ -18,7 +18,7 @@ spec:
 {{- if .Values.defaultGroups }}
 ---
 # Default groups every newly-registered/created user joins automatically.
-apiVersion: group.keycloak.crossplane.io/v1alpha1
+apiVersion: defaults.keycloak.crossplane.io/v1alpha1
 kind: DefaultGroups
 metadata:
   name: realm-default-groups
