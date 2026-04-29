@@ -63,12 +63,15 @@ promtail:
         batchwait: 1s
         timeout: 10s
 
-  # ServiceMonitor so Prometheus scrapes Promtail's own metrics
-  # (queue depth, dropped lines, push errors).
+  # ServiceMonitor stays OFF until prometheus-agent (Pattern A) is
+  # fleet-deployed.  Workload clusters today have no
+  # `monitoring.coreos.com/ServiceMonitor` CRD because they don't run
+  # prometheus-operator — turning this on creates a sync failure on
+  # every non-observability cluster.  Re-enable globally once
+  # `agents/prometheus-agent/` is shipped (it pulls in the operator
+  # CRDs as a dep).
   serviceMonitor:
-    enabled: true
-    labels:
-      app.kubernetes.io/part-of: observability
+    enabled: false
 
   # PriorityClass so Promtail outranks ordinary workloads when nodes
   # are pressured — losing logs during incidents is worst-case for SRE.
