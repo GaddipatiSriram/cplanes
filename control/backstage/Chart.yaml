@@ -1,0 +1,11 @@
+apiVersion: v2
+name: backstage
+description: Backstage developer portal on mgmt-control — replaces the OpenShift console as the catalog/scaffolder/docs UI for the platform. Initial deploy uses the upstream demo image; swap to a custom-built image once a config is committed.
+type: application
+version: 0.1.0
+appVersion: "1.31.1"
+
+dependencies:
+  - name: backstage
+    version: "2.1.1"
+    repository: https://backstage.github.io/charts

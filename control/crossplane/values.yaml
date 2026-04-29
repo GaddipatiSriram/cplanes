@@ -1,0 +1,46 @@
+# Values for the Crossplane core chart on mgmt-control.
+# Subchart name: `crossplane` — must match Chart.yaml dependency.
+#
+# Architecture:
+#   - Crossplane core in the `crossplane-system` namespace
+#   - Providers (provider-vault, provider-kubernetes, etc.) are installed
+#     OUT OF BAND via separate Provider CRs, NOT bundled here. Keeps the
+#     chart minimal and lets each provider follow its own release cadence.
+#   - First provider candidates (post-install): provider-vault for the
+#     auth-mount-per-cluster automation (#46), provider-kubernetes for
+#     fan-out to remote clusters.
+#
+# This is just the controller. To actually do anything useful, after
+# this is Synced+Healthy:
+#   kubectl --context mgmt-control apply -f - <<EOF
+#   apiVersion: pkg.crossplane.io/v1
+#   kind: Provider
+#   metadata: { name: provider-vault }
+#   spec:
+#     package: xpkg.upbound.io/upbound/provider-vault:v1.0.0
+#   EOF
+# (or codify Providers as a sibling chart later — see task #46/#47/#48.)
+
+crossplane:
+  # Single replica — homelab. Crossplane supports HA with leader election,
+  # not relevant at this scale.
+  replicas: 1
+
+  resourcesCrossplane:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+
+  resourcesRBACManager:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+
+  metrics:
+    enabled: false   # flip on once mgmt-observability scrapes crossplane-system

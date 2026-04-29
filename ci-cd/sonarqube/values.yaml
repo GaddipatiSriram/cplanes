@@ -1,0 +1,77 @@
+# Values for the SonarQube umbrella chart on mgmt-forge.
+# Subchart name: `sonarqube` — must match Chart.yaml dependency.
+#
+# Architecture:
+#   - SonarQube Community Edition (no LDAP/SSO/branch-analysis paywalled
+#     features). Single instance.
+#   - Bundled PostgreSQL on ceph-rbd (RWO 20Gi).
+#   - SonarQube data PVC on ceph-rbd (RWO 20Gi).
+#   - Ingress at sonarqube.apps.mgmt-forge.engatwork.com via ingress-nginx
+#     + cert-manager.
+#   - Initial admin: admin/admin (rotate on first login; SSO via Keycloak
+#     comes later).
+
+sonarqube:
+  edition: community
+
+  # Disable embedded PostgreSQL Operator path — the chart's bundled
+  # postgresql subchart is simpler for a homelab.
+  postgresql:
+    enabled: true
+    auth:
+      username: sonarUser
+      password: sonarPass         # rotate via Vault/ESO when forge/todo C5 lands
+      database: sonarDB
+    primary:
+      persistence:
+        enabled: true
+        storageClass: ceph-rbd
+        size: 20Gi
+
+  # SonarQube data persistence (logs, plugins, extensions, temp).
+  persistence:
+    enabled: true
+    storageClass: ceph-rbd
+    accessMode: ReadWriteOnce
+    size: 20Gi
+
+  # SonarQube wants vm.max_map_count=524288 in the host kernel for ES.
+  # The init container takes care of it; allow privileged init.
+  initSysctl:
+    enabled: true
+  initFs:
+    enabled: true
+
+  # Ingress (nginx + cert-manager)
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+    hosts:
+      - name: sonarqube.apps.mgmt-forge.engatwork.com
+        path: /
+        pathType: Prefix
+    tls:
+      - hosts:
+          - sonarqube.apps.mgmt-forge.engatwork.com
+        secretName: sonarqube-tls
+
+  # Service: ClusterIP behind the ingress.
+  service:
+    type: ClusterIP
+
+  # Resources — bump after first soak; defaults are conservative.
+  resources:
+    requests:
+      cpu: 200m
+      memory: 2Gi
+    limits:
+      cpu: 2
+      memory: 4Gi
+
+  # Initial admin password rotation note: SonarQube ships with
+  # admin/admin. After first login it forces a password change. For
+  # automation, set adminPassword + currentAdminPassword here AFTER
+  # the first manual rotation (or use the admin-password override via
+  # bootstrapProperties).

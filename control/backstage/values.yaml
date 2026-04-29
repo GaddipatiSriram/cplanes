@@ -1,0 +1,52 @@
+# Values for the Backstage umbrella chart on mgmt-control.
+# Subchart name: `backstage` — must match Chart.yaml dependency.
+#
+# Architecture:
+#   - Backstage frontend + backend in one pod via the official chart.
+#   - Initial deploy uses the upstream demo image (ghcr.io/backstage/backstage:1.31.1).
+#     Demo image has the catalog/scaffolder defaults but NO custom plugins,
+#     no auth provider, no integrations. To make it useful you build a
+#     custom image with a forked app + plugins + auth wired to Keycloak.
+#   - Optional Postgres backend (for the catalog / TechDocs); defaults to
+#     SQLite in-pod for the demo image. Once we have a real config, flip
+#     postgresql.enabled: true.
+#   - Ingress at backstage.apps.mgmt-control.engatwork.com via ingress-nginx
+#     + cert-manager. Login via Keycloak OIDC once the auth-* plugin
+#     is configured in the custom image.
+
+backstage:
+  backstage:
+    image:
+      registry: ghcr.io
+      repository: backstage/backstage
+      tag: "1.31.1"
+    replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 1
+        memory: 1Gi
+    # The demo image listens on 7007. The chart wires the Service to it.
+
+  service:
+    type: ClusterIP
+    ports:
+      backend: 7007
+
+  ingress:
+    enabled: true
+    className: nginx
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+    host: backstage.apps.mgmt-control.engatwork.com
+    tls:
+      enabled: true
+      secretName: backstage-tls
+
+  # Postgres backend disabled until we have a real config that exercises
+  # the catalog/TechDocs persistence. The demo image runs SQLite in-pod —
+  # ephemeral, fine for kicking the tires.
+  postgresql:
+    enabled: false

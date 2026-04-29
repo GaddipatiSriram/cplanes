@@ -1,0 +1,11 @@
+apiVersion: v2
+name: crossplane
+description: Crossplane core on mgmt-control — declarative reconciliation for non-K8s APIs (Vault, Ceph, oVirt, AWS, etc.). Providers and ProviderConfigs are added separately.
+type: application
+version: 0.1.0
+appVersion: "1.18.0"
+
+dependencies:
+  - name: crossplane
+    version: "1.18.0"
+    repository: https://charts.crossplane.io/stable

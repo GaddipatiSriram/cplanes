@@ -1,0 +1,11 @@
+apiVersion: v2
+name: sonarqube
+description: SonarQube on mgmt-forge — static code analysis + quality gates. Bundled PostgreSQL on ceph-rbd. Ingress at sonarqube.apps.mgmt-forge.engatwork.com.
+type: application
+version: 0.1.0
+appVersion: "10.7"
+
+dependencies:
+  - name: sonarqube
+    version: "10.7.0+2580"
+    repository: https://SonarSource.github.io/helm-chart-sonarqube
