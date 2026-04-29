@@ -1,22 +1,19 @@
-# ProviderConfig for provider-vault using Kubernetes auth.
+# ProviderConfig for provider-vault.
 #
-# Crossplane's provider-vault controller pod presents its in-cluster
-# ServiceAccount JWT (from /var/run/secrets/kubernetes.io/serviceaccount/token)
-# to the Vault role configured below. Vault validates via TokenReview
-# against mgmt-control's kube-apiserver, then issues a short-lived Vault
-# token scoped to the `crossplane-admin` policy.
+# Authenticates via a token stored in Secret/vault-credentials (key
+# `credentials`, content `{"token": "<hvs....>"}`). The ExternalSecret in
+# templates/vault-credentials-externalsecret.yaml renders that Secret from
+# Vault path kv/forge/crossplane/vault-token.
 #
-# No long-lived token in Vault, no ExternalSecret, no Secret rotation.
+# Why token auth (not the cleaner Kubernetes auth login):
+# upbound/provider-vault's ProviderConfig spec exposes only `credentials`,
+# `address`, `headers`, etc. — no first-class auth_login_kubernetes block.
+# Token auth via secretRef is the supported pattern.
 #
-# Sync wave 2 — after the Provider has installed its CRDs (wave 0).
-# SkipDryRunOnMissingResource lets ArgoCD retry until the CRD is registered.
-#
-# NOTE: provider-vault (upbound) ProviderConfig field name for the
-# Kubernetes auth login block follows the Terraform Vault provider's
-# `auth_login_kubernetes` convention — translated to camelCase as
-# `authLoginKubernetes`. If your installed provider version uses a
-# different schema, run `kubectl explain providerconfig.spec` against the
-# installed CRD to find the actual field name.
+# The token is minted once with the crossplane-admin policy
+# (cplanes/security/secrets/vault/playbooks/configure.yml ships that policy).
+# Rotation: `vault token revoke` + re-mint + `vault kv put kv/forge/crossplane/vault-token`;
+# ESO will pick up the new value within its refreshInterval.
 
 apiVersion: vault.upbound.io/v1beta1
 kind: ProviderConfig
@@ -30,6 +27,9 @@ metadata:
     argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
 spec:
   address: {{ .Values.providerConfig.vault.address | quote }}
-  authLoginKubernetes:
-    mount: {{ .Values.providerConfig.vault.auth.mount | quote }}
-    role: {{ .Values.providerConfig.vault.auth.role | quote }}
+  credentials:
+    source: Secret
+    secretRef:
+      namespace: crossplane-system
+      name: vault-credentials
+      key: credentials

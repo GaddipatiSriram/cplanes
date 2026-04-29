@@ -5,40 +5,37 @@
 #   - provider-vault (upbound) — Terraform-backed Vault provider.
 #   - provider-keycloak (crossplane-contrib) — Terraform-backed Keycloak provider.
 #
-# Vault provider authenticates via **Kubernetes auth** (no long-lived token).
-# Crossplane's provider-vault pod presents its ServiceAccount JWT to Vault's
-# kubernetes-mgmt-control auth mount, which validates against mgmt-control's
-# kube-apiserver and issues a Vault token scoped to the crossplane-admin
-# policy. Token lifetime is short (10m default); auto-refreshed.
+# Both providers authenticate via Secret-mounted JSON credentials —
+# the upbound/crossplane-contrib ProviderConfig schema for these
+# providers exposes `credentials.source: Secret` only (no first-class
+# auth_login_kubernetes block in the v1beta1 spec).
 #
-# IRREDUCIBLE BOOTSTRAP (two `vault` CLI lines, run once via
-# vault/playbooks/configure.yml):
+# Vault provider:
+#   credentials Secret = vault-credentials in crossplane-system
+#   key `credentials` content: {"token": "<vault token>"}
+#   Token sourced from kv/forge/crossplane/vault-token.
 #
-#   # 1. The policy provider-vault uses to manage everything else
-#   vault policy write crossplane-admin - <<'EOF'
-#   path "sys/policies/acl/*"                  { capabilities = ["create","read","update","delete","list"] }
-#   path "auth/kubernetes-mgmt-forge/role/*"   { capabilities = ["create","read","update","delete","list"] }
-#   path "auth/kubernetes-mgmt-control/role/*" { capabilities = ["create","read","update","delete","list"] }
-#   path "kv/data/forge/*"                     { capabilities = ["create","read","update","delete","list"] }
-#   path "kv/metadata/forge/*"                 { capabilities = ["create","read","update","delete","list"] }
-#   EOF
+# Keycloak provider:
+#   credentials Secret = keycloak-credentials in crossplane-system
+#   key `credentials` content: full connection JSON (url, base_path,
+#     realm, client_id, username, password)
+#   Username/password sourced from kv/forge/keycloak.
 #
-#   # 2. The Vault role that the provider-vault SA authenticates against
-#   vault write auth/kubernetes-mgmt-control/role/crossplane \
-#     bound_service_account_names='*' \
-#     bound_service_account_namespaces=crossplane-system \
-#     policies=crossplane-admin \
-#     ttl=10m
+# IRREDUCIBLE BOOTSTRAP (run once on a host with the Vault root token):
 #
-# (`*` for SA names because Crossplane's package manager assigns the
-# provider-vault controller SA a hash-suffixed name we can't predict
-# stably without a DeploymentRuntimeConfig — the namespace bound is
-# tight enough.)
+#   # 1. Write the crossplane-admin policy + mint a long-lived token
+#   #    (already created by vault/playbooks/configure.yml --tags configure).
+#   #    Then mint a token and stash it in Vault for ESO to mirror:
+#   TOKEN=$(kubectl --context mgmt-forge exec -n vault vault-0 -- \
+#     sh -c "VAULT_TOKEN=$ROOT vault token create \
+#       -policy=crossplane-admin -orphan -ttl=8760h -format=json" \
+#     | jq -r .auth.client_token)
+#   kubectl --context mgmt-forge exec -n vault vault-0 -- \
+#     sh -c "VAULT_TOKEN=$ROOT vault kv put kv/forge/crossplane/vault-token token=$TOKEN"
 #
-# After these two lines, every other Vault role/policy is a Crossplane
-# CR (see security/secrets/vault-config/). The Keycloak provider gets
-# its admin creds from kv/forge/keycloak via ESO into Secret/keycloak-admin
-# in crossplane-system — Vault is the single source of truth.
+# After this, ESO renders Secret/vault-credentials in crossplane-system
+# and provider-vault comes online. Every other Vault role/policy is then
+# managed by Crossplane (security/secrets/vault-config/).
 
 provider:
   vault:
@@ -56,27 +53,19 @@ provider:
 providerConfig:
   vault:
     address: "https://vault.apps.mgmt-forge.engatwork.com"
-    # Kubernetes auth — no Secret needed. provider-vault's pod uses its
-    # in-cluster SA token at /var/run/secrets/kubernetes.io/serviceaccount/token
-    # to log in to Vault at the mount/role below.
-    auth:
-      mount: "kubernetes-mgmt-control"
-      role: "crossplane"
   keycloak:
     url: "https://keycloak.apps.mgmt-forge.engatwork.com"
     basePath: "/auth"
     realm: "master"
     clientId: "admin-cli"
-    # Admin creds materialized as Secret/keycloak-admin in crossplane-system
-    # by templates/keycloak-admin-externalsecret.yaml. Sourced from the same
-    # Vault path that bootstraps the Keycloak pod itself (kv/forge/keycloak).
-    secretName: "keycloak-admin"
 
 externalSecret:
   refreshInterval: 1h
   secretStoreRef:
     name: vault-forge
     kind: ClusterSecretStore
+  vaultToken:
+    vaultPath: "forge/crossplane/vault-token"
   keycloakAdmin:
     vaultPath: "forge/keycloak"
     usernameProperty: "KC_BOOTSTRAP_ADMIN_USERNAME"

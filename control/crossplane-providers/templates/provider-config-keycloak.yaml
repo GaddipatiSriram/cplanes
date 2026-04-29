@@ -1,11 +1,23 @@
-# ProviderConfig for provider-keycloak. Authenticates to Keycloak's admin
-# REST API using username+password from Secret/keycloak-admin (rendered by
-# the ExternalSecret in this same chart).
+# ProviderConfig for provider-keycloak.
 #
-# Wave 2 — after the Provider has installed its CRDs (wave 0) and the
-# admin Secret has been materialized (wave 1).
+# Schema (v1beta1): spec.credentials only — no top-level url / realm fields.
+# Connection details (url, base_path, realm, client_id) AND admin creds
+# (username, password) all live inside the Secret as a JSON blob:
+#
+#   {
+#     "url":         "https://keycloak.apps.mgmt-forge.engatwork.com",
+#     "base_path":   "/auth",
+#     "realm":       "master",
+#     "client_id":   "admin-cli",
+#     "username":    "admin",
+#     "password":    "<from kv/forge/keycloak>"
+#   }
+#
+# Rendered by templates/keycloak-credentials-externalsecret.yaml from
+# kv/forge/keycloak (the same path the Keycloak pod itself uses for
+# bootstrap admin creds).
 
-apiVersion: keycloak.crossplane.io/v1alpha1
+apiVersion: keycloak.crossplane.io/v1beta1
 kind: ProviderConfig
 metadata:
   name: keycloak-default
@@ -16,16 +28,9 @@ metadata:
     argocd.argoproj.io/sync-wave: "2"
     argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
 spec:
-  url: {{ .Values.providerConfig.keycloak.url | quote }}
-  basePath: {{ .Values.providerConfig.keycloak.basePath | quote }}
-  realm: {{ .Values.providerConfig.keycloak.realm | quote }}
-  clientId: {{ .Values.providerConfig.keycloak.clientId | quote }}
   credentials:
     source: Secret
     secretRef:
       namespace: crossplane-system
-      name: {{ .Values.providerConfig.keycloak.secretName | quote }}
-      # provider-keycloak (Terraform-flavored) reads username and password
-      # from these keys when source: Secret is set with the admin auth
-      # method (default).
-      key: password
+      name: keycloak-credentials
+      key: credentials
