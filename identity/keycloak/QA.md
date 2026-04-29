@@ -428,6 +428,14 @@ For now we use the manual flow (kubectl create secret + referenced in
 ArgoCD CR). It proves OIDC works end-to-end. Pattern 1 is the migration
 target, separately tracked.
 
+> **Update — what we actually shipped.** The implementation diverged from
+> Pattern 1. See **"Current setup — engatwork SSO architecture"** below. We
+> used a hybrid: realm-import ConfigMap (one-shot declarative) + post-sync
+> Job harvesting auto-generated secrets to Vault (closer to Pattern 5) +
+> Crossplane provider-vault for the Vault config itself (Pattern 4 for the
+> *infrastructure* policies/roles, not the client secrets). Trade-offs and
+> rationale below.
+
 ### Open items to revisit when migrating
 
 - Where does the bootstrap cephx-style "generate the initial Vault
@@ -444,3 +452,223 @@ target, separately tracked.
   for a grace window (the realm import rotates in a new credential but
   keeps old active for N minutes). Details depend on keycloak-config-cli
   version.
+
+---
+
+# Current setup — engatwork SSO architecture
+
+What was actually shipped, why it diverged from Pattern 1, and how a
+request flows through it. README.md covers ops (table of clients, runbook
+commands); this section covers the *why*.
+
+## Q12. What pattern did we end up shipping, and why not Pattern 1 (keycloak-config-cli)?
+
+**A.** A hybrid, captured here:
+
+| Concern | Pattern 1 (recommended in Q11) | What we shipped |
+|---|---|---|
+| Realm + clients declared in Git | YAML processed by keycloak-config-cli | JSON inside a ConfigMap, mounted at `/opt/keycloak/data/import`, read on Keycloak startup via `--import-realm` |
+| Client secrets generated | keycloak-config-cli substitutes `$(env:VAR)` from a Vault-backed Secret | Keycloak auto-generates on import; a PostSync Job harvests via REST API into Vault |
+| Vault policies + auth-backend roles | Imperative `vault policy write …` | Declarative Crossplane CRs (`Policy`, `AuthBackendRole`) reconciled by provider-vault |
+| Drift between Git and live realm | keycloak-config-cli forces re-import (IMPORT_FORCE) | IGNORE_EXISTING — UI edits survive; Git changes don't propagate to a live realm |
+
+**Why not pure Pattern 1.** The keycloak-config-cli sidecar adds a Java
+runtime, an extra image, and a templating language we'd otherwise skip.
+For a homelab with four OIDC clients evolving slowly, the realm-import
+ConfigMap is simpler — one boot, one import. The trade-off is the
+IGNORE_EXISTING gotcha (see Q15).
+
+**Why a Job for secret harvest, not config-cli's `$(env:VAR)`.** Avoids
+needing the secret in Vault *before* Keycloak boots — Vault was empty for
+these paths until the Job ran the first time. Removes the pre-population
+step from the bootstrap dance.
+
+**Why Crossplane for Vault policies.** Vault config (policies + auth roles)
+used to be a separate Ansible playbook (`vault/playbooks/configure.yml`).
+Bringing it under Crossplane means *adding a new policy is a values-file
+edit* — same workflow as everything else. The single chicken-and-egg —
+minting the Crossplane admin token in Vault — is documented in
+`control/crossplane-providers/values.yaml` and only happens once per
+Vault server.
+
+---
+
+## Q13. Walk through the boot sequence — what depends on what?
+
+**A.** ArgoCD sync waves enforce ordering. Wave 0 is the foundation, each
+subsequent wave assumes prior waves are healthy.
+
+```
+wave 0  cert-manager, ingress-nginx, external-secrets CRDs, crossplane core
+wave 1  external-secrets controller, vault server, ClusterSecretStore vault-forge
+wave 2  keycloak (realm-import on first boot)
+        crossplane-providers (Provider/ProviderConfig for vault)
+PostSync keycloak-client-secret-sync Job runs after keycloak StatefulSet healthy
+        → harvests apps-launcher / backstage / argocd-sre / argocd-devops secrets to Vault
+        → seeds oauth2-proxy cookie-secret if absent
+wave 3  oauth2-proxy (reads Secret/oauth2-proxy-oidc via ESO from Vault)
+        argocd-sre, argocd-devops (read Secret/argocd-oidc via ESO)
+        backstage (Secret/backstage-oidc rendered, env wiring still commented
+        until custom image lands)
+wave 4  vault-config CRs apply (Policy + AuthBackendRole — provider-vault
+        translates to Vault HTTP API calls)
+        homer (gated by oauth2-proxy via nginx auth-url subrequest)
+```
+
+**Cross-cluster note.** Keycloak + Vault run on **mgmt-forge**.
+oauth2-proxy / Homer / argocd-* / Backstage / Crossplane all run on
+**mgmt-control**. The two clusters are stitched together by:
+1. ESO's `ClusterSecretStore vault-forge` on each cluster, hitting Vault's
+   public ingress URL (`https://vault.apps.mgmt-forge.engatwork.com`).
+2. CoreDNS on mgmt-core resolving the wildcard `*.apps.<cluster>.engatwork.com`
+   to each cluster's ingress VIP.
+
+---
+
+## Q14. Trace one user login end-to-end (Homer + ArgoCD).
+
+**A.** Two flows; both terminate at the same Keycloak realm.
+
+### A. Apps launcher (Homer behind oauth2-proxy)
+
+```
+1. Browser → GET https://home.apps.mgmt-control.engatwork.com/
+2. ingress-nginx fires auth-subrequest to /oauth2/auth
+   → oauth2-proxy returns 401 (no session cookie)
+3. ingress-nginx redirects browser to /oauth2/start?rd=/...
+4. oauth2-proxy → 302 to
+     https://keycloak.apps.mgmt-forge.../auth/realms/engatwork/protocol/openid-connect/auth
+     ?client_id=apps-launcher&redirect_uri=.../oauth2/callback&...
+5. Keycloak presents login (or skips if SSO cookie present)
+6. User authenticates → 302 back to /oauth2/callback?code=…
+7. oauth2-proxy exchanges code for tokens via the apps-launcher client_secret
+   (read from Secret/oauth2-proxy-oidc, sourced from Vault)
+8. oauth2-proxy sets _oauth2_proxy session cookie, redirects to original /
+9. Browser → GET / again. ingress-nginx auth-subrequest → 202 (cookie valid)
+   → request reaches Homer pod, tile page renders.
+```
+
+### B. ArgoCD-SRE (direct OIDC, no oauth2-proxy)
+
+```
+1. Browser → GET https://argocd-sre.apps.mgmt-control.engatwork.com/login
+2. User clicks "LOGIN VIA KEYCLOAK"
+3. argocd-server → 302 to Keycloak with client_id=argocd-sre
+4. Keycloak — already SSO'd (cookie from step 5 above) → silent success
+5. 302 back to /auth/callback?code=…
+6. argocd-server fetches OIDC config from issuer's well-known endpoint,
+   validates code, reads ID token. clientSecret pulled from
+   Secret/argocd-oidc (rendered by ESO from kv/forge/keycloak/clients/argocd-sre).
+7. ID token contains `groups` claim — Keycloak's `groups` clientScope put
+   it there via the oidc-group-membership-mapper.
+8. argocd-server matches groups against policy.csv:
+     g, platform-sre, role:admin
+   User is admin → full UI.
+```
+
+The "single login" experience is real because steps 4–5 in flow B reuse
+the Keycloak session cookie set during flow A. Both clients live in the
+same realm, so the SSO session crosses applications.
+
+---
+
+## Q15. The realm-import IGNORE_EXISTING gotcha — what is it, and how do we work around it?
+
+**A.** Keycloak's `--import-realm` flag has three strategies (controlled by
+`KC_SPI_IMPORT_SINGLE_FILE_STRATEGY`):
+
+- **IGNORE_EXISTING** (default) — if the realm already exists, do nothing.
+- **OVERWRITE_EXISTING** — re-import every boot, clobbering UI edits.
+- **NO_IMPORT** — never import.
+
+We run with default IGNORE_EXISTING. Consequence: editing
+`templates/realm-import-cm.yaml` (e.g., adding a new client) does *not*
+update a running realm. The new client only appears if the realm is
+re-created.
+
+**Why we accept this.** Most Keycloak operators want UI edits to stick —
+imagine fine-tuning a brute-force-detection setting in the UI and having
+it overwritten on the next pod restart. IGNORE_EXISTING is the "safe"
+default the chart maintainers picked.
+
+**Workarounds for adding a new client to a live realm:**
+
+1. **Manual UI creation** matching the JSON spec — tedious but correct.
+2. **Delete the realm** in admin UI → next pod restart re-imports — only
+   safe on a fresh install (loses users, sessions, tokens).
+3. **One-off OVERWRITE_EXISTING boot** — set the env var, restart, revert.
+   Risky.
+4. **Future improvement (open work):** extend `client-secret-sync-job.yaml`
+   into a client-*upsert* Job. Already has the admin token and REST
+   access; adding "POST the client config if it doesn't exist" is a few
+   lines of bash. Would make new client provisioning truly git-push-only.
+
+Tracked under todo.md. Not a blocker today because the four currently
+defined clients cover the immediate scope.
+
+---
+
+## Q16. What does the vault-config chart actually do?
+
+**A.** It declares the *Vault server's* policies and auth-backend roles
+as Kubernetes CRs, reconciled by Crossplane's provider-vault.
+
+Files:
+
+```
+security/secrets/vault-config/
+├── values.yaml                          ← maps of policies + roles
+└── templates/
+    ├── policies.yaml                    ← renders Policy CRs
+    └── kubernetes-auth-roles.yaml       ← renders AuthBackendRole CRs
+```
+
+`values.yaml` is the source of truth — adding a new Vault policy is one
+entry in `policies:` + `git push`. Crossplane's provider-vault pod (on
+mgmt-control, in `crossplane-system`) sees the new CR, calls the Vault
+API using its admin token, creates the policy. From there everything
+downstream just works.
+
+**Why the chart deploys to mgmt-control, not mgmt-forge.** The Crossplane
+controller — which actually calls the Vault API — runs on mgmt-control.
+The Crossplane CRs (the *managed resources*) only have meaning where the
+controller can see them. So the chart targets `role: control` even
+though, conceptually, it's configuring something on mgmt-forge. This is
+a recurring pattern with Crossplane: the *target of management* and the
+*location of the managed resource CR* are decoupled.
+
+**Bootstrap sequence.** The Crossplane → Vault bridge needs one
+manually-minted Vault token with the `crossplane-admin` policy, written
+to `kv/forge/crossplane/vault-token`. That's the only manual Vault step
+left — see `control/crossplane-providers/values.yaml` header. After that
+token exists, every other Vault role/policy is reconciled by Crossplane
+on git push.
+
+---
+
+## Q17. What's NOT done yet?
+
+**A.**
+
+- **Backstage SSO is scaffolded but not active.** The `backstage`
+  client + ExternalSecret + values.yaml block exist, but the demo image
+  (`ghcr.io/backstage/backstage:latest`) doesn't bundle the OIDC plugin.
+  Activating requires bootstrapping a Backstage TS app source in a sibling
+  repo, adding `@backstage/plugin-auth-backend-module-oidc-provider`,
+  building/pushing a custom image, then flipping the chart values.
+- **Vault UI not behind SSO.** Vault has its own auth (token / userpass /
+  OIDC). Could be added as a 5th client in the realm with `vault auth enable
+  oidc` configured against Keycloak.
+- **Grafana / Prometheus / Alertmanager not behind SSO.** They sit at
+  *.apps.mgmt-observability.engatwork.com today with chart-default auth.
+  Each is a one-client-per-app addition once the pattern is comfortable.
+- **forge-reader Vault policy not yet under Crossplane management.** The
+  existing policy (used by ESO across all clusters) is still provisioned
+  via `vault/playbooks/configure.yml`. Bringing it under vault-config is
+  one entry in `values.yaml` — just needs an unmanaged → managed import.
+- **Realm-import client upsert.** See Q15. Currently adding a new client
+  to a live realm is manual.
+
+Each of these is a one-session piece of work. The *infrastructure* (realm,
+Vault paths, ESO ClusterSecretStore, Crossplane provider) is in place;
+new consumers just plug in.
