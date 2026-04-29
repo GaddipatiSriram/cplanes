@@ -1,10 +1,22 @@
-# ProviderConfig for provider-vault. Authenticates via the token synced into
-# Secret/vault-token by the ExternalSecret in this same chart.
+# ProviderConfig for provider-vault using Kubernetes auth.
 #
-# Sync wave 2 — after the Provider has installed its CRDs (wave 0) and the
-# token Secret has been materialized (wave 1). On a brand-new cluster the
-# CRD won't exist on first sync; SkipDryRunOnMissingResource lets ArgoCD
-# retry until the Provider reconciles its CRDs.
+# Crossplane's provider-vault controller pod presents its in-cluster
+# ServiceAccount JWT (from /var/run/secrets/kubernetes.io/serviceaccount/token)
+# to the Vault role configured below. Vault validates via TokenReview
+# against mgmt-control's kube-apiserver, then issues a short-lived Vault
+# token scoped to the `crossplane-admin` policy.
+#
+# No long-lived token in Vault, no ExternalSecret, no Secret rotation.
+#
+# Sync wave 2 — after the Provider has installed its CRDs (wave 0).
+# SkipDryRunOnMissingResource lets ArgoCD retry until the CRD is registered.
+#
+# NOTE: provider-vault (upbound) ProviderConfig field name for the
+# Kubernetes auth login block follows the Terraform Vault provider's
+# `auth_login_kubernetes` convention — translated to camelCase as
+# `authLoginKubernetes`. If your installed provider version uses a
+# different schema, run `kubectl explain providerconfig.spec` against the
+# installed CRD to find the actual field name.
 
 apiVersion: vault.upbound.io/v1beta1
 kind: ProviderConfig
@@ -18,9 +30,6 @@ metadata:
     argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
 spec:
   address: {{ .Values.providerConfig.vault.address | quote }}
-  credentials:
-    source: Secret
-    secretRef:
-      namespace: crossplane-system
-      name: {{ .Values.providerConfig.vault.secretName | quote }}
-      key: {{ .Values.providerConfig.vault.secretKey | quote }}
+  authLoginKubernetes:
+    mount: {{ .Values.providerConfig.vault.auth.mount | quote }}
+    role: {{ .Values.providerConfig.vault.auth.role | quote }}

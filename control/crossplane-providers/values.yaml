@@ -3,28 +3,42 @@
 #
 # What's here today:
 #   - provider-vault (upbound) — Terraform-backed Vault provider.
-#     Manages Vault policies, auth backend roles, KV secrets, etc. as
-#     Kubernetes CRs.
-#   - ProviderConfig pointing at Vault using token auth. Token comes from
-#     Vault itself via ESO (kv/forge/crossplane/vault-token), bootstrapped
-#     once manually.
+#   - provider-keycloak (crossplane-contrib) — Terraform-backed Keycloak provider.
 #
-# CHICKEN-AND-EGG bootstrap (one-time, run from a host with Vault CLI):
-#   # Create the policy that Crossplane will use to manage other Vault config
+# Vault provider authenticates via **Kubernetes auth** (no long-lived token).
+# Crossplane's provider-vault pod presents its ServiceAccount JWT to Vault's
+# kubernetes-mgmt-control auth mount, which validates against mgmt-control's
+# kube-apiserver and issues a Vault token scoped to the crossplane-admin
+# policy. Token lifetime is short (10m default); auto-refreshed.
+#
+# IRREDUCIBLE BOOTSTRAP (two `vault` CLI lines, run once via
+# vault/playbooks/configure.yml):
+#
+#   # 1. The policy provider-vault uses to manage everything else
 #   vault policy write crossplane-admin - <<'EOF'
-#   path "sys/policies/acl/*"            { capabilities = ["create","read","update","delete","list"] }
+#   path "sys/policies/acl/*"                  { capabilities = ["create","read","update","delete","list"] }
 #   path "auth/kubernetes-mgmt-forge/role/*"   { capabilities = ["create","read","update","delete","list"] }
 #   path "auth/kubernetes-mgmt-control/role/*" { capabilities = ["create","read","update","delete","list"] }
+#   path "kv/data/forge/*"                     { capabilities = ["create","read","update","delete","list"] }
+#   path "kv/metadata/forge/*"                 { capabilities = ["create","read","update","delete","list"] }
 #   EOF
 #
-#   # Mint a long-lived token with that policy and stash in Vault for ESO to sync
-#   TOKEN=$(vault token create -policy=crossplane-admin -orphan -ttl=8760h -format=json | jq -r .auth.client_token)
-#   vault kv put kv/forge/crossplane/vault-token token="$TOKEN"
+#   # 2. The Vault role that the provider-vault SA authenticates against
+#   vault write auth/kubernetes-mgmt-control/role/crossplane \
+#     bound_service_account_names='*' \
+#     bound_service_account_namespaces=crossplane-system \
+#     policies=crossplane-admin \
+#     ttl=10m
 #
-# After this, ESO syncs the token into Secret/vault-token (in
-# crossplane-system) and the ProviderConfig below comes online. From here
-# every other Vault role/policy is a Kubernetes CR (see security/secrets/
-# vault-config/).
+# (`*` for SA names because Crossplane's package manager assigns the
+# provider-vault controller SA a hash-suffixed name we can't predict
+# stably without a DeploymentRuntimeConfig — the namespace bound is
+# tight enough.)
+#
+# After these two lines, every other Vault role/policy is a Crossplane
+# CR (see security/secrets/vault-config/). The Keycloak provider gets
+# its admin creds from kv/forge/keycloak via ESO into Secret/keycloak-admin
+# in crossplane-system — Vault is the single source of truth.
 
 provider:
   vault:
@@ -42,10 +56,12 @@ provider:
 providerConfig:
   vault:
     address: "https://vault.apps.mgmt-forge.engatwork.com"
-    # Token is materialized as Secret/vault-token by the ExternalSecret in
-    # templates/vault-token-externalsecret.yaml.
-    secretName: "vault-token"
-    secretKey: "token"
+    # Kubernetes auth — no Secret needed. provider-vault's pod uses its
+    # in-cluster SA token at /var/run/secrets/kubernetes.io/serviceaccount/token
+    # to log in to Vault at the mount/role below.
+    auth:
+      mount: "kubernetes-mgmt-control"
+      role: "crossplane"
   keycloak:
     url: "https://keycloak.apps.mgmt-forge.engatwork.com"
     basePath: "/auth"
@@ -61,8 +77,6 @@ externalSecret:
   secretStoreRef:
     name: vault-forge
     kind: ClusterSecretStore
-  vault:
-    vaultPath: "forge/crossplane/vault-token"
   keycloakAdmin:
     vaultPath: "forge/keycloak"
     usernameProperty: "KC_BOOTSTRAP_ADMIN_USERNAME"

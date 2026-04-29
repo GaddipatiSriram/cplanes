@@ -490,12 +490,15 @@ provider-keycloak is one more package, one more ProviderConfig, and the
 existing Crossplane reconciliation loop handles drift — no extra moving
 parts.
 
-**The chicken-and-egg now.** Crossplane needs *one* manually-minted Vault
-token in `kv/forge/crossplane/vault-token` (for provider-vault) and reads
-the Keycloak admin password from `kv/forge/keycloak` via ESO into
-crossplane-system (for provider-keycloak). Both are documented in
-`control/crossplane-providers/values.yaml`. After those two prereqs,
-everything else is git-push.
+**The chicken-and-egg now.** provider-vault uses Vault's Kubernetes auth
+method — the controller pod's SA JWT logs in directly, no long-lived
+token. The irreducible manual step shrinks to **two `vault` CLI lines**:
+the `crossplane-admin` policy and the `crossplane` Vault role bound to
+the `crossplane-system` namespace at the `kubernetes-mgmt-control` auth
+mount. provider-keycloak's admin password still flows from `kv/forge/keycloak`
+via ESO into `Secret/keycloak-admin` — that's already declarative.
+Everything else (Vault policies, Vault auth roles for other workloads,
+Keycloak realm/clients/groups/scopes) is git-push.
 
 ---
 

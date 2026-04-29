@@ -7,5 +7,5 @@ description: |
   `vault write auth/.../role/...` bootstrap commands). Future additions:
   provider-kubernetes for cross-cluster reconciliation.
 type: application
-version: 0.2.0
+version: 0.3.0
 appVersion: "1.0.0"
