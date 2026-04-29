@@ -69,19 +69,22 @@ oauth2-proxy:
     type: ClusterIP
     portNumber: 80
 
+  # Disabled — the upstream chart's ingress template renders incorrectly
+  # against our values shape (ingress.tls=true ends up as a boolean in the
+  # Ingress spec). Custom Ingress lives in templates/ingress.yaml.
   ingress:
+    enabled: false
+
+# Umbrella-chart toggle, read by templates/ingress.yaml.
+ingress:
+  enabled: true
+  className: nginx
+  host: home.apps.mgmt-control.engatwork.com
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  tls:
     enabled: true
-    className: nginx
-    hostname: home.apps.mgmt-control.engatwork.com
-    path: /oauth2
-    pathType: Prefix
-    annotations:
-      cert-manager.io/cluster-issuer: letsencrypt-prod
-    tls: true
-    extraTls:
-      - hosts:
-          - home.apps.mgmt-control.engatwork.com
-        secretName: home-tls
+    secretName: home-tls
 
   serviceAccount:
     enabled: true
