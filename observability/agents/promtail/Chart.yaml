@@ -1,0 +1,30 @@
+apiVersion: v2
+name: promtail
+description: |
+  Promtail DaemonSet — Pattern A agent.  One pod per node, every pod
+  tails every container's stdout/stderr from `/var/log/pods/`, ships
+  to Loki on mgmt-observability.
+
+  Topology:
+    - Runs on every cluster matched by promtail-appset.yaml's selector
+      (`tier In [mgmt, dev]`) — currently mgmt-control, mgmt-forge,
+      mgmt-observability, mgmt-storage.
+    - Pushes to https://loki.apps.mgmt-observability.engatwork.com,
+      single ingress for all clusters; auth-off, single-tenant.
+    - External label `cluster=<name>` injected by AppSet helm.parameters
+      so the same Loki instance disambiguates streams.
+
+  Note on Promtail's lifecycle: Grafana Labs has positioned `alloy`
+  as the unified collector successor (logs+metrics+traces).  Promtail
+  is in maintenance mode but not deprecated.  We use it now because:
+  it's mature, the chart is small, and the migration to alloy when we
+  add OTel will be a separate AppSet rather than a refactor of this one.
+
+type: application
+version: 0.1.0
+appVersion: "3.5.1"
+
+dependencies:
+  - name: promtail
+    version: 6.17.1
+    repository: https://grafana.github.io/helm-charts

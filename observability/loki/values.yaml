@@ -1,0 +1,154 @@
+# Values for the observability/loki umbrella chart.
+#
+# We keep our own values in this top-level file (umbrella scope) and
+# pass everything intended for the upstream chart under the `loki:`
+# key (subchart scope).  Anything OUTSIDE `loki:` is consumed by our
+# templates/ (currently just templates/ingress.yaml).
+
+# =============================================================================
+# Subchart: grafana/loki (single-binary mode)
+# =============================================================================
+loki:
+  # ---------------- Loki server config ----------------
+  loki:
+    # Service / Pod naming control.  Pinning the fullname here means the
+    # in-cluster Service is just `loki.observability.svc:3100`, which
+    # Grafana (sibling chart) and Promtail (Pattern A AppSet) hard-code.
+    auth_enabled: false
+
+    # Required for Loki v3.x — declare the schema period(s).  TSDB store
+    # with v13 schema is the current production-grade combo.
+    schemaConfig:
+      configs:
+        - from: "2024-04-01"
+          store: tsdb
+          object_store: filesystem
+          schema: v13
+          index:
+            prefix: loki_index_
+            period: 24h
+
+    # Filesystem-backed chunk store today; switch to s3 when RGW lands.
+    storage:
+      type: filesystem
+
+    # 30-day retention via the compactor.  When retention triggers, the
+    # compactor enqueues delete requests on filesystem storage too —
+    # delete_request_store must match.
+    limits_config:
+      retention_period: 720h
+      reject_old_samples: true
+      reject_old_samples_max_age: 168h
+      # Bound queries so a runaway PromQL-style explore can't OOM Loki.
+      max_query_series: 100000
+      max_query_length: 0   # disable; our retention bound makes this redundant
+
+    compactor:
+      retention_enabled: true
+      retention_delete_delay: 2h
+      retention_delete_worker_count: 150
+      delete_request_store: filesystem
+
+    # SingleBinary cannot replicate, but the chart wants this set
+    # explicitly to avoid the ingester refusing to start.
+    commonConfig:
+      replication_factor: 1
+
+    # Pattern ingester is a v3.x preview feature for log pattern
+    # detection — adds memory pressure, not needed for basic use.
+    pattern_ingester:
+      enabled: false
+
+  # SingleBinary: one StatefulSet, one pod, all Loki targets in-process.
+  # Tens of GB/day, no HA.  Acceptable for a homelab learning stack.
+  deploymentMode: SingleBinary
+
+  singleBinary:
+    replicas: 1
+    persistence:
+      enabled: true
+      storageClass: ceph-rbd
+      accessModes: [ReadWriteOnce]
+      size: 100Gi
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+      limits:
+        cpu: "1"
+        memory: 2Gi
+
+  # The chart still emits the StatefulSets/Deployments for read/write/
+  # backend even in SingleBinary mode unless their replicas are 0.
+  read:
+    replicas: 0
+  write:
+    replicas: 0
+  backend:
+    replicas: 0
+
+  # =============================================================================
+  # Disabled subcomponents
+  # =============================================================================
+  # Gateway is the chart's nginx front for split mode + multi-tenancy
+  # auth.  We're single-tenant single-binary; ingress-nginx fronts Loki
+  # directly via templates/ingress.yaml.
+  gateway:
+    enabled: false
+
+  # Bundled MinIO — for chart users who don't bring their own object
+  # store.  We use filesystem; keep it off.
+  minio:
+    enabled: false
+
+  # Memcached caches (chunks + results) — only meaningful at scale.
+  chunksCache:
+    enabled: false
+  resultsCache:
+    enabled: false
+
+  # Loki Canary deploys a synthetic generator + checker.  Useful as
+  # CI-style health probe; redundant for a homelab where we'd just
+  # tail logs in Grafana to verify.
+  lokiCanary:
+    enabled: false
+
+  test:
+    enabled: false
+
+  # Self-monitoring deploys grafana-agent + an OpenTelemetry collector;
+  # we already have prometheus-operator, ship metrics via ServiceMonitor.
+  monitoring:
+    selfMonitoring:
+      enabled: false
+      grafanaAgent:
+        installOperator: false
+    serviceMonitor:
+      enabled: true
+      labels:
+        # Operator's PrometheusSpec watches all SMs (selectorNilUsesHelmValues:
+        # false in observability/prometheus).  Label is informational here.
+        app.kubernetes.io/part-of: observability
+
+# =============================================================================
+# Umbrella-chart values (consumed by templates/, NOT passed to subchart)
+# =============================================================================
+ingress:
+  enabled: true
+  className: nginx
+  host: loki.apps.mgmt-observability.engatwork.com
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    # Promtail batches large pushes; default body size limits 413 fast.
+    nginx.ingress.kubernetes.io/proxy-body-size: "16m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "120"
+  tls:
+    enabled: true
+    secretName: loki-tls
+  # Backend points at the chart-rendered SingleBinary Service.  Default
+  # naming is `<release>-loki`; with releaseName: loki the Service is
+  # just `loki`.
+  service:
+    name: loki
+    port: 3100

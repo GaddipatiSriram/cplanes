@@ -1,0 +1,43 @@
+apiVersion: v2
+name: loki
+description: |
+  Loki on the mgmt-observability cluster — central log backend for the
+  whole homelab.
+
+  Single-tenant, single-binary mode for simplicity (`deploymentMode:
+  SingleBinary`).  Filesystem chunk store on a ceph-rbd PVC.  Sized for
+  ~30d retention; bigger retention or HA → swap to SimpleScalable +
+  object storage (Ceph RGW once it's stood up) without changing
+  Promtail/Grafana wiring.
+
+  Why this shape:
+  - SingleBinary is the documented "tens of GB/day, no HA" option,
+    fits our 3-node 16 GiB observability cluster comfortably.
+  - SimpleScalable + Distributed both REQUIRE object storage; we don't
+    have S3 yet (Ceph RGW deployment deferred).  When RGW lands:
+    `deploymentMode: SimpleScalable`, swap `loki.storage.type:
+    filesystem` → `s3`, set `loki.storage.s3.endpoint:
+    http://rgw.rook-ceph-external.svc:80`.  Promtail config, Grafana
+    datasource, ServiceMonitor — all unchanged.
+  - Auth is OFF (`loki.auth_enabled: false`).  Single tenant means no
+    `X-Scope-OrgID` header juggling for clients.  When we onboard
+    cross-tenant scenarios (per-team isolation, prod/dev split), flip
+    to multi-tenant + add the gateway component for header injection.
+
+  Gateway (the chart's nginx-front sidecar) is intentionally disabled.
+  We expose Loki directly through a chart-owned Ingress
+  (`templates/ingress.yaml`); the gateway adds value mostly when
+  read/write are split, which they aren't here.
+
+  Pattern C ApplicationSet (selector role=observ, sync wave 0).
+  Sibling to prometheus + alertmanager; precedes grafana (wave 1) so
+  the Loki datasource health-checks green on first Grafana boot.
+
+type: application
+version: 0.1.0
+appVersion: "3.6.7"
+
+dependencies:
+  - name: loki
+    version: 6.55.0
+    repository: https://grafana.github.io/helm-charts

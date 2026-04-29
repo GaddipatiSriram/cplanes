@@ -69,6 +69,17 @@ grafana:
           jsonData:
             implementation: prometheus
             handleGrafanaManagedAlerts: false
+        # Loki — same-cluster Service URL; ingress hop is unnecessary
+        # for in-cluster Grafana queries.  The ingress at
+        # loki.apps.mgmt-observability.engatwork.com exists for
+        # cross-cluster Promtail push, not for Grafana.
+        - name: Loki
+          uid: loki
+          type: loki
+          url: http://loki.observability.svc:3100
+          access: proxy
+          jsonData:
+            maxLines: 1000
 
   # Ingress — for now uses ingress-nginx's default self-signed cert.
   # Migrate to a cert-manager-issued Vault PKI cert once the

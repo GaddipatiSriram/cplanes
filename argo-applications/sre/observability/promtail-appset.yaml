@@ -1,0 +1,68 @@
+# ApplicationSet — Promtail DaemonSet on every workload cluster.
+#
+# Pattern A: broad selector, fans to mgmt-control, mgmt-forge,
+# mgmt-observability, mgmt-storage today; future dev-* clusters join
+# automatically.  Excludes mgmt-core (no labels) and any role-less
+# cluster — a labels-hygiene task tracked separately.
+#
+# Per-cluster identity: the `cluster=<name>` Loki label is injected
+# via helm.parameters from the cluster Secret name.  Same chart,
+# different external_labels per Application.
+#
+# Sync wave 1 — Loki (wave 0) needs to be Synced+Healthy first so
+# Promtail's first push lands.
+#
+# Discovery: picked up by sre-root-app.yaml — no kubectl apply needed.
+
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: promtail
+  namespace: argocd-sre
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchExpressions:
+            - { key: tier, operator: In, values: [mgmt, dev] }
+  template:
+    metadata:
+      name: 'promtail-{{.name}}'
+      labels:
+        app.kubernetes.io/name: promtail
+        app.kubernetes.io/part-of: observability
+      annotations:
+        argocd.argoproj.io/sync-wave: "1"
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/GaddipatiSriram/cplanes.git
+        targetRevision: HEAD
+        path: observability/agents/promtail
+        helm:
+          releaseName: promtail
+          # Per-cluster Loki external label.  AppSet's `{{.name}}`
+          # resolves to the cluster Secret name (mgmt-control, etc.).
+          parameters:
+            - name: promtail.config.clients[0].external_labels.cluster
+              value: '{{.name}}'
+      destination:
+        server: '{{.server}}'
+        namespace: observability
+      syncPolicy:
+        automated:
+          selfHeal: true
+          prune: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+          - SkipDryRunOnMissingResource=true
+          - RespectIgnoreDifferences=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 10s
+            factor: 2
+            maxDuration: 3m

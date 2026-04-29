@@ -1,0 +1,75 @@
+# Values for observability/agents/promtail (Pattern A umbrella chart).
+#
+# AppSet sets the per-cluster `cluster` label via helm.parameters at
+# generation time; this value file's `cluster: ""` is just a default
+# so `helm template` works locally.
+
+# Default; overridden per cluster by the AppSet:
+#   helm.parameters:
+#     - name: promtail.config.clients[0].external_labels.cluster
+#       value: '{{name}}'
+cluster: ""
+
+promtail:
+  # =============================================================================
+  # Daemonset & host volume mounts
+  # =============================================================================
+  daemonset:
+    enabled: true
+
+  # Tolerate every taint — control-plane, master, dedicated nodes.
+  # Logs from system pods on tainted nodes are valuable.
+  tolerations:
+    - effect: NoSchedule
+      operator: Exists
+    - effect: NoExecute
+      operator: Exists
+
+  # Promtail reads /var/log/pods (kubelet writes container logs there)
+  # plus /var/lib/docker/containers (older docker runtime).  Defaults
+  # ship both — keep them.
+
+  # =============================================================================
+  # Resources — DaemonSet × N nodes; keep small
+  # =============================================================================
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+  # =============================================================================
+  # Promtail config
+  # =============================================================================
+  config:
+    clients:
+      - url: "https://loki.apps.mgmt-observability.engatwork.com/loki/api/v1/push"
+        # external_labels are added to EVERY stream this client sends.
+        # AppSet helm.parameters injects `cluster: <cluster-name>` so
+        # queries can disambiguate.  Setting `cluster: ""` here keeps
+        # the YAML schema valid before the override fires.
+        external_labels:
+          cluster: ""
+        # Backoff policy — bound retries so a temporarily-unreachable
+        # Loki doesn't blow Promtail's memory queueing pushes.
+        backoff_config:
+          min_period: 500ms
+          max_period: 5m
+          max_retries: 10
+        # Don't queue forever; drop old data if Loki is down >5m.
+        batchsize: 1048576
+        batchwait: 1s
+        timeout: 10s
+
+  # ServiceMonitor so Prometheus scrapes Promtail's own metrics
+  # (queue depth, dropped lines, push errors).
+  serviceMonitor:
+    enabled: true
+    labels:
+      app.kubernetes.io/part-of: observability
+
+  # PriorityClass so Promtail outranks ordinary workloads when nodes
+  # are pressured — losing logs during incidents is worst-case for SRE.
+  priorityClassName: system-node-critical

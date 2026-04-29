@@ -1,0 +1,67 @@
+# ApplicationSet — Loki on the observability cluster.
+#
+# Pattern C selector role=observ — matches mgmt-observability today.
+# Sync wave 0 — sibling to prometheus + alertmanager; precedes grafana
+# (wave 1) so Grafana's Loki datasource health-checks green on first
+# boot.
+#
+# Discovery: picked up by sre-root-app.yaml — no kubectl apply needed.
+
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: loki
+  namespace: argocd-sre
+spec:
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            role: observ
+  template:
+    metadata:
+      name: 'loki-{{name}}'
+      labels:
+        app.kubernetes.io/name: loki
+        app.kubernetes.io/part-of: observability
+      annotations:
+        argocd.argoproj.io/sync-wave: "0"
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/GaddipatiSriram/cplanes.git
+        targetRevision: HEAD
+        path: observability/loki
+        helm:
+          releaseName: loki
+      destination:
+        server: '{{server}}'
+        namespace: observability
+      syncPolicy:
+        automated:
+          selfHeal: true
+          prune: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+          - SkipDryRunOnMissingResource=true
+          - RespectIgnoreDifferences=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 10s
+            factor: 2
+            maxDuration: 3m
+      # Loki's chart writes its config into a Secret; the operator and
+      # chart-managed StatefulSet have caBundle / status fields that
+      # ArgoCD picks up as drift.  Pre-empt the noise.
+      ignoreDifferences:
+        - group: apps
+          kind: StatefulSet
+          jsonPointers:
+            - /spec/volumeClaimTemplates
+        - group: ""
+          kind: Secret
+          name: loki
+          jsonPointers:
+            - /data
