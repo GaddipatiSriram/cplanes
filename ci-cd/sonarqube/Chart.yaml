@@ -1,11 +1,11 @@
 apiVersion: v2
 name: sonarqube
-description: SonarQube on mgmt-forge — bitnami umbrella chart bundling SonarQube + PostgreSQL out-of-the-box. Ingress at sonarqube.apps.mgmt-forge.engatwork.com.
+description: SonarQube on mgmt-forge — sonarsource's official chart for SonarQube + a tiny in-chart postgres Deployment using upstream postgres:17 (no bitnami). Ingress at sonarqube.apps.mgmt-forge.engatwork.com.
 type: application
-version: 0.3.0
-appVersion: "25.8.0"
+version: 0.4.0
+appVersion: "2026.2.1"
 
 dependencies:
   - name: sonarqube
-    version: "8.1.17"
-    repository: https://charts.bitnami.com/bitnami
+    version: "2026.2.1"
+    repository: https://SonarSource.github.io/helm-chart-sonarqube

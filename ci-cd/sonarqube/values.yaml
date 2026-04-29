@@ -1,27 +1,72 @@
 # Values for the SonarQube umbrella chart on mgmt-forge.
-# Subchart name: `sonarqube` — must match Chart.yaml dependency.
 #
-# Architecture (bitnami/sonarqube 8.1.17):
-#   - SonarQube + bundled PostgreSQL (single chart, no sub-coordination
-#     needed — sonarsource's own chart dropped postgres in 2026.x; bitnami
-#     still bundles it).
-#   - SonarQube data PVC on ceph-rbd (logs, plugins, extensions).
-#   - PostgreSQL data PVC on ceph-rbd.
+# Architecture:
+#   - sonarsource/sonarqube subchart (the official one) — runs SonarQube
+#     itself. It dropped bundled postgres in 2026.x; we bring our own.
+#   - Local postgres Deployment + PVC rendered by this chart's
+#     templates/postgres.yaml — single pod, upstream postgres:17 image,
+#     no bitnami dependency.
 #   - Ingress at sonarqube.apps.mgmt-forge.engatwork.com via ingress-nginx
 #     + cert-manager.
 #   - Initial admin: admin/admin (rotate on first login; SSO via Keycloak
 #     comes later via the SonarQube OAuth/SAML plugin).
+#
+# When CNPG (#14) lands, replace this local postgres with a CNPG Cluster
+# CR and delete templates/postgres.yaml + the .postgres values block.
 
+# =============================================================================
+# Local postgres (in-chart Deployment)
+# =============================================================================
+postgres:
+  image: postgres:17.6
+  user: sonarqube
+  password: sonarqube_dev_password   # rotate via Vault/ESO when forge/todo C5 lands
+  database: sonarqube
+  storageClass: ceph-rbd
+  storage: 10Gi
+
+# =============================================================================
+# SonarQube (sonarsource/sonarqube subchart values)
+# =============================================================================
 sonarqube:
-  # SonarQube image — bitnami pulled named tags off docker.io/bitnami in
-  # Aug 2025; current free images live under docker.io/bitnamilegacy.
-  image:
-    registry: docker.io
-    repository: bitnamilegacy/sonarqube
-    tag: 25.8.0-debian-12-r2
-    pullPolicy: IfNotPresent
+  community:
+    enabled: true             # Community Edition — no LDAP/branch features
+  edition: community
 
-  # Resources — bump after first soak.
+  # Point at our in-chart postgres
+  jdbcOverwrite:
+    enable: true
+    jdbcUrl: "jdbc:postgresql://sonarqube-postgres:5432/sonarqube"
+    jdbcUsername: "sonarqube"
+    jdbcSecretName: "sonarqube-postgres"
+    jdbcSecretPasswordKey: "POSTGRES_PASSWORD"
+
+  # SonarQube-side persistence (logs, plugins, extensions; smaller than
+  # postgres data).
+  persistence:
+    enabled: true
+    storageClass: ceph-rbd
+    accessMode: ReadWriteOnce
+    size: 10Gi
+
+  # Ingress (nginx + cert-manager)
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    hosts:
+      - name: sonarqube.apps.mgmt-forge.engatwork.com
+        path: /
+        pathType: Prefix
+    tls:
+      - hosts:
+          - sonarqube.apps.mgmt-forge.engatwork.com
+        secretName: sonarqube-tls
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+
+  service:
+    type: ClusterIP
+
   resources:
     requests:
       cpu: 200m
@@ -29,47 +74,3 @@ sonarqube:
     limits:
       cpu: 2
       memory: 4Gi
-
-  # SonarQube data persistence.
-  persistence:
-    enabled: true
-    storageClass: ceph-rbd
-    accessModes:
-      - ReadWriteOnce
-    size: 20Gi
-
-  # Ingress (nginx + cert-manager)
-  ingress:
-    enabled: true
-    ingressClassName: nginx
-    hostname: sonarqube.apps.mgmt-forge.engatwork.com
-    annotations:
-      cert-manager.io/cluster-issuer: letsencrypt-prod
-    tls: true
-
-  service:
-    type: ClusterIP
-
-  # Bundled PostgreSQL.
-  postgresql:
-    enabled: true
-    # Same docker.io → bitnamilegacy migration as SonarQube image above.
-    # The bitnami sonarqube chart pins an OLD postgres tag that no longer
-    # exists on docker.io/bitnami; force the current legacy tag.
-    image:
-      registry: docker.io
-      repository: bitnamilegacy/postgresql
-      tag: 17.6.0-debian-12-r4
-    auth:
-      username: bn_sonarqube
-      password: sonarPass         # rotate via Vault/ESO when forge/todo C5 lands
-      database: bitnami_sonarqube
-    primary:
-      persistence:
-        enabled: true
-        storageClass: ceph-rbd
-        size: 20Gi
-
-  # SonarQube wants vm.max_map_count high enough for ES — bitnami chart
-  # handles the sysctl init container automatically when running as
-  # non-root and ES is bundled. No values knob needed.
