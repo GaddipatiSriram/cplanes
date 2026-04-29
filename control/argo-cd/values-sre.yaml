@@ -29,11 +29,32 @@ argo-cd:
       # Allow Applications in any namespace to reference repos registered
       # with this controller.
       timeout.reconciliation: 180s
+      # OIDC against the engatwork Keycloak realm. clientSecret reference
+      # `$argocd-oidc:client-secret` is resolved by argocd-server from
+      # Secret/argocd-oidc in this namespace (rendered by ESO via
+      # templates/oidc-externalsecret.yaml).
+      url: https://argocd-sre.apps.mgmt-control.engatwork.com
+      oidc.config: |
+        name: Keycloak
+        issuer: https://keycloak.apps.mgmt-forge.engatwork.com/auth/realms/engatwork
+        clientID: argocd-sre
+        clientSecret: $argocd-oidc:client-secret
+        requestedScopes:
+          - openid
+          - profile
+          - email
+          - groups
+        requestedIDTokenClaims:
+          groups:
+            essential: true
 
     rbac:
-      # Default policy: read-only for authenticated users, admin via
-      # Keycloak group claim once OIDC is wired (TODO: forge/todo.md C7).
+      # Default policy: read-only for authenticated users; map the platform-sre
+      # Keycloak group to ArgoCD admin so SREs can sync/rollback.
       policy.default: role:readonly
+      policy.csv: |
+        g, platform-sre, role:admin
+      scopes: "[groups]"
 
   # Server: single replica + ingress (cert-manager-issued cert via
   # ingress-nginx). HA can flip controller/repoServer/applicationSet
@@ -68,7 +89,12 @@ argo-cd:
   redis:
     enabled: true
 
-  # Dex disabled — OIDC will be Keycloak direct via configs.cm once the
-  # forge realm has the argocd client.
+  # Dex disabled — OIDC is Keycloak direct via configs.cm.oidc.config above.
   dex:
     enabled: false
+
+# Umbrella-chart toggles (not passed to subchart). Read by
+# templates/oidc-externalsecret.yaml.
+oidc:
+  enabled: true
+  clientName: argocd-sre

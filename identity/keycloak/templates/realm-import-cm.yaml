@@ -114,6 +114,84 @@ data:
           },
           "defaultClientScopes": ["web-origins", "profile", "roles", "email"],
           "optionalClientScopes": ["address", "phone", "offline_access", "microprofile-jwt"]
+        },
+        {
+          "clientId": "argocd-sre",
+          "name": "ArgoCD — SRE instance",
+          "description": "OIDC client for argocd-sre (platform GitOps). Reads via configs.cm.oidc.config.",
+          "enabled": true,
+          "protocol": "openid-connect",
+          "publicClient": false,
+          "standardFlowEnabled": true,
+          "implicitFlowEnabled": false,
+          "directAccessGrantsEnabled": false,
+          "serviceAccountsEnabled": false,
+          "rootUrl": "https://argocd-sre.apps.mgmt-control.engatwork.com",
+          "baseUrl": "/",
+          "redirectUris": [
+            "https://argocd-sre.apps.mgmt-control.engatwork.com/auth/callback",
+            "http://localhost:8085/auth/callback"
+          ],
+          "webOrigins": [
+            "https://argocd-sre.apps.mgmt-control.engatwork.com"
+          ],
+          "attributes": {
+            "post.logout.redirect.uris": "https://argocd-sre.apps.mgmt-control.engatwork.com"
+          },
+          "defaultClientScopes": ["web-origins", "profile", "roles", "email", "groups"],
+          "optionalClientScopes": ["address", "phone", "offline_access", "microprofile-jwt"]
+        },
+        {
+          "clientId": "argocd-devops",
+          "name": "ArgoCD — DevOps instance",
+          "description": "OIDC client for argocd-devops (application GitOps). Reads via configs.cm.oidc.config.",
+          "enabled": true,
+          "protocol": "openid-connect",
+          "publicClient": false,
+          "standardFlowEnabled": true,
+          "implicitFlowEnabled": false,
+          "directAccessGrantsEnabled": false,
+          "serviceAccountsEnabled": false,
+          "rootUrl": "https://argocd-devops.apps.mgmt-control.engatwork.com",
+          "baseUrl": "/",
+          "redirectUris": [
+            "https://argocd-devops.apps.mgmt-control.engatwork.com/auth/callback",
+            "http://localhost:8085/auth/callback"
+          ],
+          "webOrigins": [
+            "https://argocd-devops.apps.mgmt-control.engatwork.com"
+          ],
+          "attributes": {
+            "post.logout.redirect.uris": "https://argocd-devops.apps.mgmt-control.engatwork.com"
+          },
+          "defaultClientScopes": ["web-origins", "profile", "roles", "email", "groups"],
+          "optionalClientScopes": ["address", "phone", "offline_access", "microprofile-jwt"]
+        }
+      ],
+      "clientScopes": [
+        {
+          "name": "groups",
+          "description": "OpenID Connect scope mapping a user's groups into the ID token.",
+          "protocol": "openid-connect",
+          "attributes": {
+            "include.in.token.scope": "true",
+            "display.on.consent.screen": "true"
+          },
+          "protocolMappers": [
+            {
+              "name": "groups",
+              "protocol": "openid-connect",
+              "protocolMapper": "oidc-group-membership-mapper",
+              "consentRequired": false,
+              "config": {
+                "full.path": "false",
+                "id.token.claim": "true",
+                "access.token.claim": "true",
+                "userinfo.token.claim": "true",
+                "claim.name": "groups"
+              }
+            }
+          ]
         }
       ]
     }

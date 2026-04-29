@@ -27,8 +27,30 @@ argo-cd:
     cm:
       application.instanceLabelKey: argocd.argoproj.io/instance
       timeout.reconciliation: 180s
+      # OIDC against the engatwork Keycloak realm — separate client from
+      # argocd-sre so the two instances have distinct identities. Group
+      # claim drives RBAC mapping below.
+      url: https://argocd-devops.apps.mgmt-control.engatwork.com
+      oidc.config: |
+        name: Keycloak
+        issuer: https://keycloak.apps.mgmt-forge.engatwork.com/auth/realms/engatwork
+        clientID: argocd-devops
+        clientSecret: $argocd-oidc:client-secret
+        requestedScopes:
+          - openid
+          - profile
+          - email
+          - groups
+        requestedIDTokenClaims:
+          groups:
+            essential: true
     rbac:
+      # Devops users get admin on app workloads; SREs are read-only here
+      # (their place is argocd-sre).
       policy.default: role:readonly
+      policy.csv: |
+        g, platform-users, role:admin
+      scopes: "[groups]"
 
   server:
     replicas: 1
@@ -61,3 +83,8 @@ argo-cd:
 
   dex:
     enabled: false
+
+# Umbrella-chart toggles. Read by templates/oidc-externalsecret.yaml.
+oidc:
+  enabled: true
+  clientName: argocd-devops
