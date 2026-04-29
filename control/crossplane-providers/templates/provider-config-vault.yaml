@@ -32,6 +32,11 @@ spec:
   # CA into the provider pod). For now, the homelab Vault is signed by the
   # internal engatwork CA which the provider doesn't trust by default.
   skip_tls_verify: true
+  # The Terraform Vault provider creates a short-lived child token before
+  # every API call by default. That requires auth/token/create on the parent
+  # token's policy. Skip it to use the parent token directly — simpler, and
+  # avoids granting the broader token-creation capability.
+  skip_child_token: true
   credentials:
     source: Secret
     secretRef:
