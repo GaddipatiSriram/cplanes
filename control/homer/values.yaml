@@ -124,7 +124,9 @@ config:
         - name: "Keycloak"
           subtitle: "OIDC / IAM (engatwork realm)"
           tag: "auth"
-          url: "https://keycloak.apps.mgmt-forge.engatwork.com"
+          # /auth — Keycloak runs in relative-path mode (KC_HTTP_RELATIVE_PATH=/auth);
+          # bare hostname returns "Resource not found".
+          url: "https://keycloak.apps.mgmt-forge.engatwork.com/auth/"
           target: "_blank"
         - name: "Vault"
           subtitle: "Secrets store + PKI engine"
