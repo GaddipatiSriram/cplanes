@@ -33,6 +33,11 @@ sonarqube:
     enabled: true             # Community Edition — no LDAP/branch features
   edition: community
 
+  # Required by sonarsource/sonarqube 2026.x — chart fails helm template
+  # validation without it. Inline for now; rotate via Vault/ESO when
+  # forge/todo C5 lands (same pattern as the postgres password below).
+  monitoringPasscode: "homelab_dev_monitor_passcode"
+
   # Point at our in-chart postgres
   jdbcOverwrite:
     enable: true
