@@ -30,8 +30,9 @@ postgres:
 # =============================================================================
 sonarqube:
   community:
-    enabled: true             # Community Edition — no LDAP/branch features
-  edition: community
+    enabled: true             # Community Build — chart's required toggle for the free edition.
+                              # Note: do NOT also set `edition: community` — chart errors out
+                              # with "edition is not a valid edition" if both are set.
 
   # Required by sonarsource/sonarqube 2026.x — chart fails helm template
   # validation without it. Inline for now; rotate via Vault/ESO when
