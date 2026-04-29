@@ -99,12 +99,16 @@ keycloakx:
     annotations:
       nginx.ingress.kubernetes.io/backend-protocol: HTTP
       nginx.ingress.kubernetes.io/ssl-redirect: "true"
+      cert-manager.io/cluster-issuer: vault-pki
     rules:
       - host: keycloak.apps.mgmt-forge.engatwork.com
         paths:
           - path: /
             pathType: Prefix
-    tls: []  # ingress-nginx default cert for now; cert-manager Certificate later
+    tls:
+      - hosts:
+          - keycloak.apps.mgmt-forge.engatwork.com
+        secretName: keycloak-tls
 
   # Resources — Keycloak is JVM, starts around 500Mi
   resources:
