@@ -1,0 +1,148 @@
+# prometheus-agent umbrella values.
+#
+# Per-cluster identity (`cluster` external label) is set by the AppSet:
+#   helm.parameters:
+#     - name: kube-prometheus-stack.prometheus.prometheusSpec.externalLabels.cluster
+#       value: '{{name}}'
+
+kube-prometheus-stack:
+  # =============================================================================
+  # CRDs ON — every workload cluster gets ServiceMonitor / PodMonitor /
+  # PrometheusRule support.  This is the "platform unlock" — once these
+  # CRDs are everywhere, charts can stop disabling ServiceMonitors on
+  # workload clusters.
+  # =============================================================================
+  crds:
+    enabled: true
+
+  # =============================================================================
+  # Disabled — those are sibling charts in observability/agents/ or live
+  # only on mgmt-observability.
+  # =============================================================================
+  alertmanager:
+    enabled: false   # central one on observability handles routing
+  grafana:
+    enabled: false   # central UI on observability
+  kubeStateMetrics:
+    enabled: false   # sibling chart observability/agents/kube-state-metrics/
+  nodeExporter:
+    enabled: false   # sibling chart observability/agents/node-exporter/
+
+  # Built-in PrometheusRule defaults assume self-observed cluster; rules
+  # belong on the central Prometheus.  Default discovery for control-plane
+  # endpoints stays off — we'll author per-component ServiceMonitors as
+  # we need them.
+  defaultRules:
+    create: false
+  kubeApiServer:
+    enabled: false
+  kubelet:
+    enabled: false
+  kubeControllerManager:
+    enabled: false
+  coreDns:
+    enabled: false
+  kubeDns:
+    enabled: false
+  kubeEtcd:
+    enabled: false
+  kubeScheduler:
+    enabled: false
+  kubeProxy:
+    enabled: false
+  kubernetesServiceMonitors:
+    enabled: false
+  prometheus-windows-exporter:
+    enabled: false
+  thanosRuler:
+    enabled: false
+
+  # =============================================================================
+  # Operator (REQUIRED — that's the whole point of this chart on workload
+  # clusters)
+  # =============================================================================
+  prometheusOperator:
+    enabled: true
+    resources:
+      requests:
+        cpu: 25m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+    admissionWebhooks:
+      certManager:
+        enabled: false   # operator's webhook self-signs; same as observability
+
+  # =============================================================================
+  # Prometheus instance — running in pseudo-agent mode.
+  # =============================================================================
+  # `kube-prometheus-stack` has no native "agent mode" toggle.  We get the
+  # same effect by:
+  #   - replicas: 1
+  #   - retention: 1h (just enough buffer for remote-write delivery)
+  #   - emptyDir storage instead of PVC (no point persisting transient data)
+  #   - rules selectors set so this prom DOESN'T evaluate central rules
+  #   - remote-write endpoint pointed at mgmt-observability
+  #
+  # When PrometheusAgent CR matures and the chart supports it cleanly,
+  # swap to that and drop this complexity.
+  prometheus:
+    enabled: true
+    prometheusSpec:
+      replicas: 1
+      retention: 1h
+      retentionSize: "1GiB"
+
+      # Watch every namespace for SM/PM/rule CRs.  Same selector pattern
+      # as the central observability Prometheus.
+      serviceMonitorSelectorNilUsesHelmValues: false
+      podMonitorSelectorNilUsesHelmValues: false
+      probeSelectorNilUsesHelmValues: false
+      ruleSelectorNilUsesHelmValues: false
+      scrapeConfigSelectorNilUsesHelmValues: false
+
+      # No remote-write receiver — this prom only sends, never receives.
+      enableRemoteWriteReceiver: false
+
+      # emptyDir — agent-mode-style ephemeral storage.  Lost on pod restart;
+      # we accept that gap because the central prom is the source of truth.
+      storageSpec: {}
+
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          cpu: 500m
+          memory: 1Gi
+
+      # Default; AppSet overrides per cluster:
+      #   --set kube-prometheus-stack.prometheus.prometheusSpec.externalLabels.cluster=<name>
+      externalLabels:
+        cluster: ""
+
+      # Ship every scraped metric to the central Prometheus.
+      # Cross-cluster TLS uses ingress-nginx which now serves a vault-pki cert.
+      # Workload-cluster pods don't yet trust engatwork CA — Phase 2 of the
+      # cert work — so we tlsConfig.insecureSkipVerify for now.  Same
+      # workaround pattern as Promtail's Loki client; drops together.
+      remoteWrite:
+        - url: https://prometheus.apps.mgmt-observability.engatwork.com/api/v1/write
+          tlsConfig:
+            insecureSkipVerify: true
+          # Reasonable defaults for remote-write — operator will fill in the rest.
+          queueConfig:
+            maxSamplesPerSend: 1000
+            capacity: 10000
+            maxShards: 30
+
+      # No Ingress for this prom — it's pure agent, never queried directly.
+
+    service:
+      type: ClusterIP
+
+  # Common chart settings
+  fullnameOverride: prometheus-agent
+  commonLabels:
+    app.kubernetes.io/part-of: observability

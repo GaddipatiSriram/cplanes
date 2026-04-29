@@ -1,0 +1,24 @@
+apiVersion: v2
+name: node-exporter
+description: |
+  Prometheus node_exporter — DaemonSet on every workload cluster.
+  One pod per node, exposes host CPU/memory/disk/network metrics on
+  :9100/metrics, scraped by the local prometheus-agent (or in the
+  case of mgmt-observability, the central Prometheus directly).
+
+  Pattern A — selector tier=mgmt|dev. Pinned chart at v4.54.0
+  (prometheus-node-exporter, app v1.11.1).
+
+  Why a sibling chart not a subchart of prometheus-agent: independent
+  lifecycle (we want to upgrade node_exporter without restarting the
+  Prometheus agent), and node-exporter is also useful on the
+  observability cluster which doesn't run the agent at all.
+
+type: application
+version: 0.1.0
+appVersion: "1.11.1"
+
+dependencies:
+  - name: prometheus-node-exporter
+    version: 4.54.0
+    repository: https://prometheus-community.github.io/helm-charts

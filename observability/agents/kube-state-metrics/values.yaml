@@ -1,0 +1,32 @@
+# kube-state-metrics umbrella values.
+
+kube-state-metrics:
+  replicas: 1   # single instance per cluster — no need for HA on metrics
+
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+  # Watch every namespace.  Default is "" which means cluster-wide; explicit
+  # for clarity.
+  namespaces: ""
+
+  # Service + ServiceMonitor.  Prometheus operator picks this up.
+  service:
+    type: ClusterIP
+    port: 8080
+
+  prometheus:
+    monitorsOnly: false
+    monitor:
+      enabled: true
+      additionalLabels:
+        app.kubernetes.io/part-of: observability
+
+  # All metric resources ON by default — they're cheap (single Deployment).
+  # If cardinality ever becomes a real problem on a busy cluster, we can
+  # disable subsets here (collectors:).

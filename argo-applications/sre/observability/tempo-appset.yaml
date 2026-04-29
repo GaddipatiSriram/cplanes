@@ -1,0 +1,55 @@
+# ApplicationSet — Tempo on the observability cluster (Pattern C).
+#
+# Sync wave 0 — sibling to Loki + Prometheus + Alertmanager; precedes
+# otel-gateway (wave 1) and Grafana datasource refresh.
+
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: tempo
+  namespace: argocd-sre
+spec:
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            role: observ
+  template:
+    metadata:
+      name: 'tempo-{{name}}'
+      labels:
+        app.kubernetes.io/name: tempo
+        app.kubernetes.io/part-of: observability
+      annotations:
+        argocd.argoproj.io/sync-wave: "0"
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/GaddipatiSriram/cplanes.git
+        targetRevision: HEAD
+        path: observability/tempo
+        helm:
+          releaseName: tempo
+      destination:
+        server: '{{server}}'
+        namespace: observability
+      syncPolicy:
+        automated:
+          selfHeal: true
+          prune: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+          - SkipDryRunOnMissingResource=true
+          - RespectIgnoreDifferences=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 10s
+            factor: 2
+            maxDuration: 3m
+      ignoreDifferences:
+        - group: apps
+          kind: StatefulSet
+          jsonPointers:
+            - /spec/volumeClaimTemplates

@@ -1,0 +1,75 @@
+# ApplicationSet — prometheus-agent on every workload cluster EXCEPT
+# mgmt-observability (where the central Prometheus instance lives, deployed
+# by observability/prometheus/).
+#
+# Selector logic:
+#   tier IN [mgmt, dev]   AND   role NOT IN [observ]
+#
+# Sync wave 0 — installs the prometheus-operator CRDs that everything
+# else (node-exporter, kube-state-metrics, future ServiceMonitors)
+# depends on.  Must come first.
+#
+# Per-cluster: AppSet sets the `cluster` external label via helm.parameters
+# so remote-write samples are tagged with their source cluster.
+
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: prometheus-agent
+  namespace: argocd-sre
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchExpressions:
+            - { key: tier, operator: In, values: [mgmt, dev] }
+            - { key: role, operator: NotIn, values: [observ] }
+  template:
+    metadata:
+      name: 'prometheus-agent-{{.name}}'
+      labels:
+        app.kubernetes.io/name: prometheus-agent
+        app.kubernetes.io/part-of: observability
+      annotations:
+        argocd.argoproj.io/sync-wave: "0"
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/GaddipatiSriram/cplanes.git
+        targetRevision: HEAD
+        path: observability/agents/prometheus-agent
+        helm:
+          releaseName: prometheus-agent
+          # `externalLabels` is a map (not a list) so --set on a single
+          # nested key preserves siblings cleanly.
+          parameters:
+            - name: kube-prometheus-stack.prometheus.prometheusSpec.externalLabels.cluster
+              value: '{{.name}}'
+      destination:
+        server: '{{.server}}'
+        namespace: observability
+      syncPolicy:
+        automated:
+          selfHeal: true
+          prune: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+          - SkipDryRunOnMissingResource=true
+          - RespectIgnoreDifferences=true
+        retry:
+          limit: 10
+          backoff:
+            duration: 10s
+            factor: 2
+            maxDuration: 3m
+      # The operator mutates its own Prometheus CR at runtime + CRD
+      # webhook caBundles.  Same drift pattern as the central
+      # observability/prometheus chart.
+      ignoreDifferences:
+        - group: apiextensions.k8s.io
+          kind: CustomResourceDefinition
+          jqPathExpressions:
+            - .spec.conversion.webhook.clientConfig.caBundle

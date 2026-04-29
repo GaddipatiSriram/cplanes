@@ -1,0 +1,83 @@
+# tempo umbrella values.
+# Subchart name "tempo" — values nested under that key.
+
+tempo:
+  # Tempo's single-binary StatefulSet.  When we outgrow this, swap to
+  # `tempo-distributed` chart (separate distributor/ingester/querier/
+  # compactor pods + S3 backend).
+  replicas: 1
+
+  # =============================================================================
+  # Receivers
+  # =============================================================================
+  # OTLP is the universal trace ingest protocol.  gRPC is the production
+  # default; HTTP is for clients (browsers, low-power devices) that can't
+  # speak gRPC.
+  tempo:
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: "0.0.0.0:4317"
+          http:
+            endpoint: "0.0.0.0:4318"
+
+    # In-memory queue + circuit breaker; spillover writes to disk.
+    # Reasonable single-binary defaults.
+    metricsGenerator:
+      enabled: false   # service graph + span metrics; defer until needed
+
+    # Storage backend.  Filesystem today; switch to s3 (Ceph RGW) when
+    # storage/rgw lands.
+    storage:
+      trace:
+        backend: local
+        local:
+          path: /var/tempo/traces
+        wal:
+          path: /var/tempo/wal
+
+    # Retention — 14d is generous for traces (they compress well, and
+    # most useful traces are recent ones).  Drop to 7d if disk pressure.
+    retention: 336h   # 14 days
+
+  persistence:
+    enabled: true
+    storageClassName: ceph-rbd
+    accessModes: [ReadWriteOnce]
+    size: 100Gi
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      cpu: 1
+      memory: 2Gi
+
+  # ServiceMonitor — central Prometheus on this cluster scrapes Tempo's own
+  # metrics (ingest rate, query latency, span counts).
+  serviceMonitor:
+    enabled: true
+    additionalLabels:
+      app.kubernetes.io/part-of: observability
+
+# =============================================================================
+# Umbrella ingress — exposes OTLP HTTP receiver for cross-cluster apps that
+# can't use the in-cluster Service.  gRPC over Ingress is fiddly (HTTP/2
+# upgrades, no native LB on ingress-nginx); recommend OTel gateway instead.
+# =============================================================================
+ingress:
+  enabled: true
+  className: nginx
+  host: tempo.apps.mgmt-observability.engatwork.com
+  annotations:
+    cert-manager.io/cluster-issuer: vault-pki
+    nginx.ingress.kubernetes.io/proxy-body-size: "16m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "120"
+  tls:
+    enabled: true
+    secretName: tempo-tls
+  service:
+    name: tempo
+    port: 4318   # OTLP HTTP only via ingress; gRPC stays in-cluster

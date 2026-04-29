@@ -1,0 +1,33 @@
+apiVersion: v2
+name: prometheus-agent
+description: |
+  Lightweight Prometheus instance running on every workload cluster
+  (NOT mgmt-observability, which has the central Prometheus instead).
+  Local scraper of ServiceMonitors + PodMonitors + raw scrape configs;
+  remote-writes everything to https://prometheus.apps.mgmt-observability.
+
+  Why a Prometheus instance instead of the standalone "agent" mode:
+  - kube-prometheus-stack ships the operator + CRDs.  Without those CRDs
+    on workload clusters, ServiceMonitor / PodMonitor authored by other
+    charts (Loki, Promtail, Vault, Crossplane, etc.) are no-ops.
+    Deploying the operator everywhere via this chart is what unlocks
+    "any chart ships a ServiceMonitor and it auto-scrapes."
+  - The Prometheus CR runs with low retention (1h) — it exists only to
+    bridge scrape → remote-write.  All persistence is in the central
+    Prometheus on mgmt-observability.
+
+  Pattern A — selector tier=mgmt|dev EXCLUDE role=observ (the
+  observability cluster's central Prometheus runs from
+  cplanes/observability/prometheus/, not this chart).
+
+  Pinned to kube-prometheus-stack 65.5.0 (matches the version on
+  observability — same operator, same CRDs).
+
+type: application
+version: 0.1.0
+appVersion: "2.55.0"
+
+dependencies:
+  - name: kube-prometheus-stack
+    version: 65.5.0
+    repository: https://prometheus-community.github.io/helm-charts

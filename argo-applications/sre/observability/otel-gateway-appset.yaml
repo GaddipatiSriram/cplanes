@@ -1,0 +1,50 @@
+# ApplicationSet — OTel Collector gateway on the observability cluster (Pattern C).
+#
+# Sync wave 1 — Tempo (wave 0) needs to be Synced+Healthy first so the
+# gateway's `otlp/tempo` exporter has a target.
+
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: otel-gateway
+  namespace: argocd-sre
+spec:
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            role: observ
+  template:
+    metadata:
+      name: 'otel-gateway-{{name}}'
+      labels:
+        app.kubernetes.io/name: otel-gateway
+        app.kubernetes.io/part-of: observability
+      annotations:
+        argocd.argoproj.io/sync-wave: "1"
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/GaddipatiSriram/cplanes.git
+        targetRevision: HEAD
+        path: observability/otel-gateway
+        helm:
+          releaseName: otel-gateway
+      destination:
+        server: '{{server}}'
+        namespace: observability
+      syncPolicy:
+        automated:
+          selfHeal: true
+          prune: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+          - SkipDryRunOnMissingResource=true
+          - RespectIgnoreDifferences=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 10s
+            factor: 2
+            maxDuration: 3m

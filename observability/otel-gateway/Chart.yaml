@@ -1,0 +1,36 @@
+apiVersion: v2
+name: otel-gateway
+description: |
+  OpenTelemetry Collector in "gateway" mode — receives OTLP from
+  workload-cluster apps, fans out to backends:
+    - traces  → Tempo  (in-cluster Service)
+    - metrics → Prometheus remote-write (in-cluster Service)
+    - logs    → Loki  (in-cluster Service; alternative to Promtail)
+
+  Apps push to a single OTLP endpoint instead of having to know which
+  backend handles which signal.  Gateway also gives us one place to
+  apply tail-sampling, attribute redaction, and routing rules later.
+
+  Why "gateway" not "agent" topology:
+    - Agent (DaemonSet on every cluster): one collector per node, apps
+      push localhost:4317.  Adds 25 pods across the homelab today.
+    - Gateway (Deployment on observability): single endpoint apps push
+      across clusters.  Simpler footprint, simpler routing.  Trade-off:
+      a network hop per push.
+    - Today: gateway only.  Add per-cluster agents when an app needs
+      auto-instrumentation that pushes to localhost (Beyla / OpenTelemetry
+      auto-instr SDK), or when cross-cluster RTT becomes a concern.
+
+  Pattern C — selector role=observ.  Sync wave 1 (Tempo wave 0 needs
+  to expose its OTLP endpoint first).
+
+  Pinned to open-telemetry/opentelemetry-collector 0.152.1 (app 0.150.1).
+
+type: application
+version: 0.1.0
+appVersion: "0.150.1"
+
+dependencies:
+  - name: opentelemetry-collector
+    version: 0.152.1
+    repository: https://open-telemetry.github.io/opentelemetry-helm-charts

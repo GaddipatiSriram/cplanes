@@ -1,0 +1,23 @@
+apiVersion: v2
+name: kube-state-metrics
+description: |
+  Translates Kubernetes object state (deployment replicas, pod phase,
+  PVC binding, node conditions, etc.) into Prometheus metrics.
+  Single Deployment per cluster — one source of truth per cluster's
+  k8s API state.
+
+  Pattern A — selector tier=mgmt|dev.  On mgmt-observability the
+  cluster-local Prometheus scrapes this directly via ServiceMonitor;
+  on every other cluster the prometheus-agent scrapes it and
+  remote-writes to mgmt-observability.
+
+  Pinned to chart 7.3.0 (KSM v2.18.0).
+
+type: application
+version: 0.1.0
+appVersion: "2.18.0"
+
+dependencies:
+  - name: kube-state-metrics
+    version: 7.3.0
+    repository: https://prometheus-community.github.io/helm-charts

@@ -80,6 +80,27 @@ grafana:
           access: proxy
           jsonData:
             maxLines: 1000
+        # Tempo — same-cluster.  Trace-to-logs (jump from a slow span to
+        # the corresponding Loki logs by namespace+pod) configured via
+        # tracesToLogsV2; trace-to-metrics similarly.
+        - name: Tempo
+          uid: tempo
+          type: tempo
+          url: http://tempo.observability.svc:3100
+          access: proxy
+          jsonData:
+            tracesToLogsV2:
+              datasourceUid: loki
+              spanStartTimeShift: -1m
+              spanEndTimeShift: 1m
+              tags:
+                - { key: service.name, value: service }
+                - { key: k8s.namespace.name, value: namespace }
+                - { key: k8s.pod.name, value: pod }
+            tracesToMetrics:
+              datasourceUid: prometheus
+              spanStartTimeShift: -1m
+              spanEndTimeShift: 1m
 
   # Ingress — for now uses ingress-nginx's default self-signed cert.
   # Migrate to a cert-manager-issued Vault PKI cert once the

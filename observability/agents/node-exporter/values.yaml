@@ -1,0 +1,44 @@
+# node-exporter umbrella values.
+
+prometheus-node-exporter:
+  # Deploys host-level metrics scraper as DaemonSet.
+  # Defaults already include: hostNetwork, hostPID, hostMounts of /, /proc,
+  # /sys, etc. (read-only).  We just want to tune tolerations + resources.
+
+  # Tolerate every taint — system-critical pods on tainted nodes are exactly
+  # what you want to monitor.
+  tolerations:
+    - effect: NoSchedule
+      operator: Exists
+    - effect: NoExecute
+      operator: Exists
+
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+  # node-exporter exposes additional collectors that are off by default but
+  # useful — interrupts, ksmd, mountstats, processes (cardinality risk;
+  # leave off in production-shaped clusters but fine for homelab debugging).
+  # Default collector set covers cpu/mem/net/disk/load — sufficient for now.
+
+  service:
+    type: ClusterIP
+    port: 9100
+
+  # ServiceMonitor — picked up by the cluster-local prometheus-agent (or by
+  # mgmt-observability's central Prometheus on that cluster).
+  prometheus:
+    monitor:
+      enabled: true
+      jobLabel: jobLabel
+      additionalLabels:
+        app.kubernetes.io/part-of: observability
+
+  # PriorityClass: outranks ordinary workloads.  Same logic as Promtail —
+  # observability data should survive node pressure.
+  priorityClassName: system-node-critical

@@ -1,0 +1,55 @@
+# ApplicationSet — node-exporter on every workload cluster (Pattern A).
+#
+# Sync wave 1 — needs the prometheus-operator's ServiceMonitor CRD on the
+# destination cluster.  prometheus-agent (wave 0) installs the CRDs;
+# observability cluster's central Prometheus chart already has them.
+#
+# Discovery: picked up by sre-root-app.yaml.
+
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: node-exporter
+  namespace: argocd-sre
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchExpressions:
+            - { key: tier, operator: In, values: [mgmt, dev] }
+  template:
+    metadata:
+      name: 'node-exporter-{{.name}}'
+      labels:
+        app.kubernetes.io/name: node-exporter
+        app.kubernetes.io/part-of: observability
+      annotations:
+        argocd.argoproj.io/sync-wave: "1"
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/GaddipatiSriram/cplanes.git
+        targetRevision: HEAD
+        path: observability/agents/node-exporter
+        helm:
+          releaseName: node-exporter
+      destination:
+        server: '{{.server}}'
+        namespace: observability
+      syncPolicy:
+        automated:
+          selfHeal: true
+          prune: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+          - SkipDryRunOnMissingResource=true
+          - RespectIgnoreDifferences=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 10s
+            factor: 2
+            maxDuration: 3m

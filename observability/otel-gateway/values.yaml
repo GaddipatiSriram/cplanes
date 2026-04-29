@@ -1,0 +1,127 @@
+# otel-gateway umbrella values.
+
+opentelemetry-collector:
+  # "deployment" mode = single-replica Deployment behind a Service.
+  # The chart also supports daemonset (per-node), statefulset (storage),
+  # and "presets" but a plain deployment is the gateway shape.
+  mode: deployment
+
+  # Use the "contrib" image — has all the receivers/exporters/processors,
+  # not just the core subset.  Worth the slight image-size hit.
+  image:
+    repository: otel/opentelemetry-collector-contrib
+
+  replicaCount: 1
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+
+  # =============================================================================
+  # Pipelines — receive OTLP, fan out to Tempo / Prometheus / Loki.
+  # =============================================================================
+  config:
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+      # Self-scrape so we get gateway health metrics.
+      prometheus:
+        config:
+          scrape_configs:
+            - job_name: otel-gateway
+              scrape_interval: 30s
+              static_configs:
+                - targets: [127.0.0.1:8888]
+
+    processors:
+      batch:
+        send_batch_size: 1024
+        timeout: 5s
+      memory_limiter:
+        check_interval: 5s
+        limit_percentage: 80
+        spike_limit_percentage: 25
+
+    exporters:
+      # Traces → Tempo via OTLP gRPC.  In-cluster, no TLS.
+      otlp/tempo:
+        endpoint: tempo.observability.svc:4317
+        tls:
+          insecure: true
+
+      # Metrics → central Prometheus via remote-write.  In-cluster.
+      prometheusremotewrite:
+        endpoint: http://prometheus-operated.observability.svc:9090/api/v1/write
+        # Don't add resource attributes as labels by default — they're
+        # high-cardinality landmines.  Apps that want cluster/svc labels
+        # should set them via `external_labels`.
+        target_info:
+          enabled: false
+
+      # Logs → Loki via the loki exporter (uses Loki push API).
+      loki:
+        endpoint: http://loki.observability.svc:3100/loki/api/v1/push
+
+      # Debug / dev exporter — log everything to stdout when investigating.
+      # Disabled in pipelines below; enable via tempfile when debugging.
+      debug:
+        verbosity: detailed
+
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [otlp/tempo]
+        metrics:
+          receivers: [otlp, prometheus]
+          processors: [memory_limiter, batch]
+          exporters: [prometheusremotewrite]
+        logs:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [loki]
+      telemetry:
+        metrics:
+          address: 0.0.0.0:8888
+
+  # =============================================================================
+  # Service exposing receivers
+  # =============================================================================
+  service:
+    type: ClusterIP
+  ports:
+    otlp:
+      enabled: true
+      containerPort: 4317
+      servicePort: 4317
+      protocol: TCP
+    otlp-http:
+      enabled: true
+      containerPort: 4318
+      servicePort: 4318
+      protocol: TCP
+    metrics:
+      enabled: true
+      containerPort: 8888
+      servicePort: 8888
+      protocol: TCP
+
+  # ServiceMonitor — central Prometheus scrapes the gateway's own metrics
+  # (received span counts, dropped batches, queue depth).
+  serviceMonitor:
+    enabled: true
+    extraLabels:
+      app.kubernetes.io/part-of: observability
+
+  # No Ingress today — apps push from in-cluster Service.  Cross-cluster
+  # OTel push is the next step (add Ingress + vault-pki cert when an app
+  # outside mgmt-observability wants to push traces).

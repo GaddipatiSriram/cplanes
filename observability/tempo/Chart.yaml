@@ -1,0 +1,29 @@
+apiVersion: v2
+name: tempo
+description: |
+  Distributed tracing backend on mgmt-observability.  Single-binary mode
+  (one Pod, one PVC, no operational complexity), filesystem chunk store
+  on ceph-rbd.  Same architecture choices as our Loki single-binary —
+  trades scale for ops simplicity.
+
+  Receivers:
+    - OTLP gRPC (4317) — primary; OTel collector gateway pushes here.
+    - OTLP HTTP (4318) — alternative for clients without gRPC.
+
+  Apps inside the cluster push directly to tempo.observability.svc:4317.
+  Apps in OTHER clusters push via the OTel gateway (single OTLP endpoint
+  per cluster, trace forwarder + sampler before fan-out to backends).
+
+  Pattern C — selector role=observ.  Sync wave 0 (sibling to Loki +
+  Prometheus + Alertmanager).
+
+  Pinned to grafana/tempo 1.24.4 (app 2.9.0).
+
+type: application
+version: 0.1.0
+appVersion: "2.9.0"
+
+dependencies:
+  - name: tempo
+    version: 1.24.4
+    repository: https://grafana.github.io/helm-charts
