@@ -1,0 +1,11 @@
+apiVersion: v2
+name: crossplane-providers
+description: |
+  Crossplane providers + ProviderConfigs for the homelab. Currently just
+  provider-vault, used to manage Vault policies and auth-backend roles
+  declaratively (replaces the per-service `vault policy write` /
+  `vault write auth/.../role/...` bootstrap commands). Future additions:
+  provider-kubernetes for cross-cluster reconciliation.
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

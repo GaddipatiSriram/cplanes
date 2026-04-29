@@ -1,0 +1,52 @@
+# ApplicationSet — Crossplane providers + ProviderConfigs on every
+# role=control cluster (currently mgmt-control). Depends on crossplane core
+# being Synced+Healthy first (wave 1).
+#
+# Discovery: picked up by sre-root-app.yaml — no kubectl needed.
+
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: crossplane-providers
+  namespace: argocd-sre
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            role: control
+  template:
+    metadata:
+      name: 'crossplane-providers-{{.name}}'
+      labels:
+        app.kubernetes.io/name: crossplane-providers
+        app.kubernetes.io/part-of: platform
+      annotations:
+        argocd.argoproj.io/sync-wave: "2"
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/GaddipatiSriram/cplanes.git
+        targetRevision: HEAD
+        path: control/crossplane-providers
+        helm:
+          releaseName: crossplane-providers
+      destination:
+        server: '{{.server}}'
+        namespace: crossplane-system
+      syncPolicy:
+        automated:
+          selfHeal: true
+          prune: true
+        syncOptions:
+          - CreateNamespace=false
+          - ServerSideApply=true
+          - SkipDryRunOnMissingResource=true
+        retry:
+          limit: 10
+          backoff:
+            duration: 10s
+            factor: 2
+            maxDuration: 3m

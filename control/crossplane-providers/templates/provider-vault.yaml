@@ -1,0 +1,15 @@
+# Crossplane Provider — installs provider-vault.
+# After this is Healthy, the vault.upbound.io API group's CRDs become
+# available cluster-wide (Policy, AuthBackendRole, Mount, KVSecret, etc.).
+
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-vault
+  labels:
+    app.kubernetes.io/name: provider-vault
+    app.kubernetes.io/part-of: platform
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  package: {{ .Values.provider.vault.package | quote }}

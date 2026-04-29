@@ -1,0 +1,26 @@
+# ProviderConfig for provider-vault. Authenticates via the token synced into
+# Secret/vault-token by the ExternalSecret in this same chart.
+#
+# Sync wave 2 — after the Provider has installed its CRDs (wave 0) and the
+# token Secret has been materialized (wave 1). On a brand-new cluster the
+# CRD won't exist on first sync; SkipDryRunOnMissingResource lets ArgoCD
+# retry until the Provider reconciles its CRDs.
+
+apiVersion: vault.upbound.io/v1beta1
+kind: ProviderConfig
+metadata:
+  name: default
+  labels:
+    app.kubernetes.io/name: provider-vault
+    app.kubernetes.io/part-of: platform
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  address: {{ .Values.providerConfig.vault.address | quote }}
+  credentials:
+    source: Secret
+    secretRef:
+      namespace: crossplane-system
+      name: {{ .Values.providerConfig.vault.secretName | quote }}
+      key: {{ .Values.providerConfig.vault.secretKey | quote }}

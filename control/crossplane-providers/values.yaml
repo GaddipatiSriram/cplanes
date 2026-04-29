@@ -1,0 +1,46 @@
+# crossplane-providers — installs Crossplane providers and ProviderConfigs.
+# Sibling to the crossplane core chart per its README.
+#
+# What's here today:
+#   - provider-vault (upbound) — Terraform-backed Vault provider.
+#     Manages Vault policies, auth backend roles, KV secrets, etc. as
+#     Kubernetes CRs.
+#   - ProviderConfig pointing at Vault using token auth. Token comes from
+#     Vault itself via ESO (kv/forge/crossplane/vault-token), bootstrapped
+#     once manually.
+#
+# CHICKEN-AND-EGG bootstrap (one-time, run from a host with Vault CLI):
+#   # Create the policy that Crossplane will use to manage other Vault config
+#   vault policy write crossplane-admin - <<'EOF'
+#   path "sys/policies/acl/*"            { capabilities = ["create","read","update","delete","list"] }
+#   path "auth/kubernetes-mgmt-forge/role/*"   { capabilities = ["create","read","update","delete","list"] }
+#   path "auth/kubernetes-mgmt-control/role/*" { capabilities = ["create","read","update","delete","list"] }
+#   EOF
+#
+#   # Mint a long-lived token with that policy and stash in Vault for ESO to sync
+#   TOKEN=$(vault token create -policy=crossplane-admin -orphan -ttl=8760h -format=json | jq -r .auth.client_token)
+#   vault kv put kv/forge/crossplane/vault-token token="$TOKEN"
+#
+# After this, ESO syncs the token into Secret/vault-token (in
+# crossplane-system) and the ProviderConfig below comes online. From here
+# every other Vault role/policy is a Kubernetes CR (see security/secrets/
+# vault-config/).
+
+provider:
+  vault:
+    package: "xpkg.upbound.io/upbound/provider-vault:v1.0.0"
+
+providerConfig:
+  vault:
+    address: "https://vault.apps.mgmt-forge.engatwork.com"
+    # Token is materialized as Secret/vault-token by the ExternalSecret in
+    # templates/vault-token-externalsecret.yaml.
+    secretName: "vault-token"
+    secretKey: "token"
+
+externalSecret:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: vault-forge
+    kind: ClusterSecretStore
+  vaultPath: "forge/crossplane/vault-token"
