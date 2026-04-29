@@ -43,10 +43,16 @@ spec:
         path: observability/agents/promtail
         helm:
           releaseName: promtail
-          # Per-cluster Loki external label.  AppSet's `{{.name}}`
-          # resolves to the cluster Secret name (mgmt-control, etc.).
+          # Per-cluster Loki external label injected as a SCALAR.
+          # The promtail subchart's config.file runs `tpl` over the
+          # clients block, so `external_labels.cluster: '{{ .Values.cluster }}'`
+          # in our values.yaml resolves at render time to whatever
+          # promtail.cluster is set to here.
+          # We can't use --set clients[0].external_labels.cluster=...
+          # because Helm replaces the whole array element on list-index
+          # paths, losing url/batchsize/backoff_config siblings.
           parameters:
-            - name: promtail.config.clients[0].external_labels.cluster
+            - name: promtail.cluster
               value: '{{.name}}'
       destination:
         server: '{{.server}}'
