@@ -19,7 +19,7 @@ backstage:
     image:
       registry: ghcr.io
       repository: backstage/backstage
-      tag: "1.31.1"
+      tag: "latest"
     replicas: 1
     resources:
       requests:
