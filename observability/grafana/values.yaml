@@ -16,6 +16,12 @@ grafana:
   # the lack of HA. Multi-replica needs a shared session store anyway.
   replicas: 1
 
+  # Recreate strategy: Grafana uses sqlite on a ceph-rbd RWO PVC, and
+  # rolling updates wedge on Multi-Attach errors (new pod can't mount
+  # while old pod holds the PVC).  Recreate kills old before new.
+  deploymentStrategy:
+    type: Recreate
+
   # Persistence on ceph-rbd — Grafana writes:
   #   - alerting state (when we use unified alerting)
   #   - dashboard editing history
