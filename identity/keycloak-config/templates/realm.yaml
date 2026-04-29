@@ -12,6 +12,11 @@ metadata:
   labels:
     app.kubernetes.io/name: keycloak-realm
     app.kubernetes.io/part-of: identity
+  annotations:
+    # Adopt the existing engatwork realm rather than try to recreate it.
+    # The realm already exists from the previous realm-import bootstrap;
+    # this annotation tells provider-keycloak to manage what's there.
+    crossplane.io/external-name: {{ .Values.realm.name | quote }}
 spec:
   forProvider:
     realm: {{ .Values.realm.name | quote }}
