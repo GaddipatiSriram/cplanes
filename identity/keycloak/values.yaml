@@ -64,10 +64,11 @@ keycloakx:
     # Required for the probes in this chart (disabled by default in 25+).
     - "--health-enabled=true"
     - "--metrics-enabled=true"
-    # Imports any JSON files at /opt/keycloak/data/import on startup. We mount
-    # templates/realm-import-cm.yaml there. Default strategy is IGNORE_EXISTING,
-    # so this is a no-op once the realm exists.
-    - "--import-realm"
+    # Realm + clients used to be imported here via --import-realm + a
+    # ConfigMap mounted at /opt/keycloak/data/import. That path is gone
+    # — realm and clients are now reconciled by Crossplane provider-keycloak
+    # from cplanes/identity/keycloak-config/. This chart owns ONLY the
+    # Keycloak server + Postgres + bootstrap admin creds.
 
   # Single replica — Keycloak supports HA clustering but needs jdbc-ping or
   # similar. Bring up after Keycloak basic is green.
@@ -77,18 +78,6 @@ keycloakx:
   extraEnvFrom: |
     - secretRef:
         name: keycloak-admin
-
-  # Mount the realm-import ConfigMap at the path Keycloak's `--import-realm`
-  # flag scans. The ConfigMap (templates/realm-import-cm.yaml) defines the
-  # `engatwork` realm and the `apps-launcher` + `backstage` OIDC clients.
-  extraVolumes: |
-    - name: realm-import
-      configMap:
-        name: keycloak-realm-import
-  extraVolumeMounts: |
-    - name: realm-import
-      mountPath: /opt/keycloak/data/import
-      readOnly: true
 
   # Database — point at in-cluster PostgreSQL (bundled below).
   # Reads DB password from Secret/keycloak-db-creds (materialized from Vault

@@ -1,0 +1,38 @@
+{{- range .Values.groups }}
+---
+apiVersion: group.keycloak.crossplane.io/v1alpha1
+kind: Group
+metadata:
+  name: {{ . | quote }}
+  labels:
+    app.kubernetes.io/name: keycloak-group-{{ . }}
+    app.kubernetes.io/part-of: identity
+spec:
+  forProvider:
+    realmIdRef:
+      name: {{ $.Values.realm.name | quote }}
+    name: {{ . | quote }}
+  providerConfigRef:
+    name: {{ $.Values.providerConfigRef.name | quote }}
+{{- end }}
+{{- if .Values.defaultGroups }}
+---
+# Default groups every newly-registered/created user joins automatically.
+apiVersion: group.keycloak.crossplane.io/v1alpha1
+kind: DefaultGroups
+metadata:
+  name: realm-default-groups
+  labels:
+    app.kubernetes.io/name: keycloak-default-groups
+    app.kubernetes.io/part-of: identity
+spec:
+  forProvider:
+    realmIdRef:
+      name: {{ .Values.realm.name | quote }}
+    groupIds:
+      {{- range .Values.defaultGroups }}
+      - {{ . | quote }}
+      {{- end }}
+  providerConfigRef:
+    name: {{ .Values.providerConfigRef.name | quote }}
+{{- end }}

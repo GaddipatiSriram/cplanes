@@ -463,33 +463,39 @@ commands); this section covers the *why*.
 
 ## Q12. What pattern did we end up shipping, and why not Pattern 1 (keycloak-config-cli)?
 
-**A.** A hybrid, captured here:
+**A.** Pattern 4 — **fully Crossplane**. Two providers (vault, keycloak)
+reconcile the configuration of two systems (Vault server, Keycloak
+realm/clients) as Kubernetes CRs.
 
-| Concern | Pattern 1 (recommended in Q11) | What we shipped |
+| Concern | Pattern 1 (Q11 original recommendation) | What we ship today |
 |---|---|---|
-| Realm + clients declared in Git | YAML processed by keycloak-config-cli | JSON inside a ConfigMap, mounted at `/opt/keycloak/data/import`, read on Keycloak startup via `--import-realm` |
-| Client secrets generated | keycloak-config-cli substitutes `$(env:VAR)` from a Vault-backed Secret | Keycloak auto-generates on import; a PostSync Job harvests via REST API into Vault |
-| Vault policies + auth-backend roles | Imperative `vault policy write …` | Declarative Crossplane CRs (`Policy`, `AuthBackendRole`) reconciled by provider-vault |
-| Drift between Git and live realm | keycloak-config-cli forces re-import (IMPORT_FORCE) | IGNORE_EXISTING — UI edits survive; Git changes don't propagate to a live realm |
+| Realm + clients declared in Git | YAML processed by keycloak-config-cli sidecar | Crossplane CRs (Realm, Client, ClientScope, Group, GroupMembershipProtocolMapper) under `identity/keycloak-config/` reconciled by provider-keycloak |
+| Client secrets harvested | keycloak-config-cli substitutes `$(env:VAR)` from a Vault-backed Secret | Crossplane Client CR's `writeConnectionSecretToRef` emits client_secret to crossplane-system; ESO PushSecret mirrors to Vault |
+| Vault policies + auth-backend roles | Imperative `vault policy write …` | Declarative Crossplane CRs (`Policy`, `AuthBackendRole`) reconciled by provider-vault under `security/secrets/vault-config/` |
+| Drift between Git and live state | keycloak-config-cli with IMPORT_FORCE | provider-keycloak active reconciliation — UI edits to managed objects are reverted to spec |
 
-**Why not pure Pattern 1.** The keycloak-config-cli sidecar adds a Java
-runtime, an extra image, and a templating language we'd otherwise skip.
-For a homelab with four OIDC clients evolving slowly, the realm-import
-ConfigMap is simpler — one boot, one import. The trade-off is the
-IGNORE_EXISTING gotcha (see Q15).
+**Migration history.** First iteration was a hybrid (realm-import ConfigMap
++ a PostSync Job to harvest secrets to Vault + Crossplane only for Vault
+policies). It worked but had the IGNORE_EXISTING gotcha (Git changes didn't
+propagate to live realms — see Q15 for what that meant). The fully-Crossplane
+migration deleted `templates/realm-import-cm.yaml`, the `--import-realm`
+flag, the `keycloak-client-secret-sync` Job, and the `keycloak-secret-sync`
+Vault role/policy. Net: less code, no IGNORE_EXISTING gap, but UI edits
+to managed objects no longer stick.
 
-**Why a Job for secret harvest, not config-cli's `$(env:VAR)`.** Avoids
-needing the secret in Vault *before* Keycloak boots — Vault was empty for
-these paths until the Job ran the first time. Removes the pre-population
-step from the bootstrap dance.
+**Why not keycloak-config-cli (Pattern 1).** The sidecar adds a Java
+runtime + image + templating language for ~the same outcome Crossplane
+provides. With Crossplane already in the stack for provider-vault, adding
+provider-keycloak is one more package, one more ProviderConfig, and the
+existing Crossplane reconciliation loop handles drift — no extra moving
+parts.
 
-**Why Crossplane for Vault policies.** Vault config (policies + auth roles)
-used to be a separate Ansible playbook (`vault/playbooks/configure.yml`).
-Bringing it under Crossplane means *adding a new policy is a values-file
-edit* — same workflow as everything else. The single chicken-and-egg —
-minting the Crossplane admin token in Vault — is documented in
-`control/crossplane-providers/values.yaml` and only happens once per
-Vault server.
+**The chicken-and-egg now.** Crossplane needs *one* manually-minted Vault
+token in `kv/forge/crossplane/vault-token` (for provider-vault) and reads
+the Keycloak admin password from `kv/forge/keycloak` via ESO into
+crossplane-system (for provider-keycloak). Both are documented in
+`control/crossplane-providers/values.yaml`. After those two prereqs,
+everything else is git-push.
 
 ---
 
@@ -501,18 +507,16 @@ subsequent wave assumes prior waves are healthy.
 ```
 wave 0  cert-manager, ingress-nginx, external-secrets CRDs, crossplane core
 wave 1  external-secrets controller, vault server, ClusterSecretStore vault-forge
-wave 2  keycloak (realm-import on first boot)
-        crossplane-providers (Provider/ProviderConfig for vault)
-PostSync keycloak-client-secret-sync Job runs after keycloak StatefulSet healthy
-        → harvests apps-launcher / backstage / argocd-sre / argocd-devops secrets to Vault
-        → seeds oauth2-proxy cookie-secret if absent
-wave 3  oauth2-proxy (reads Secret/oauth2-proxy-oidc via ESO from Vault)
-        argocd-sre, argocd-devops (read Secret/argocd-oidc via ESO)
-        backstage (Secret/backstage-oidc rendered, env wiring still commented
-        until custom image lands)
-wave 4  vault-config CRs apply (Policy + AuthBackendRole — provider-vault
-        translates to Vault HTTP API calls)
-        homer (gated by oauth2-proxy via nginx auth-url subrequest)
+wave 2  keycloak server (StatefulSet + Postgres on mgmt-forge)
+        crossplane-providers — Provider+ProviderConfig for vault AND keycloak
+wave 3  oauth2-proxy, argocd-sre OIDC, argocd-devops OIDC, backstage
+        (consumers — wait for Secret/oauth2-proxy-oidc, etc. from ESO)
+wave 4  vault-config — Crossplane Vault Policy + AuthBackendRole CRs
+wave 5  keycloak-config — Realm + Client + ClientScope + Group CRs
+        → provider-keycloak emits connection Secrets in crossplane-system
+        → PushSecret mirrors each client_secret to kv/forge/keycloak/clients/<id>
+        → ESO consumer ExternalSecrets pull and render their Secrets
+wave 6  homer (gated by oauth2-proxy via nginx auth-url subrequest)
 ```
 
 **Cross-cluster note.** Keycloak + Vault run on **mgmt-forge**.
@@ -572,39 +576,36 @@ same realm, so the SSO session crosses applications.
 
 ---
 
-## Q15. The realm-import IGNORE_EXISTING gotcha — what is it, and how do we work around it?
+## Q15. (historical) The realm-import IGNORE_EXISTING gotcha — and how the migration killed it.
 
-**A.** Keycloak's `--import-realm` flag has three strategies (controlled by
-`KC_SPI_IMPORT_SINGLE_FILE_STRATEGY`):
+**A.** Keycloak's `--import-realm` flag has three strategies controlled by
+`KC_SPI_IMPORT_SINGLE_FILE_STRATEGY`:
 
-- **IGNORE_EXISTING** (default) — if the realm already exists, do nothing.
+- **IGNORE_EXISTING** (default) — if the realm exists, do nothing.
 - **OVERWRITE_EXISTING** — re-import every boot, clobbering UI edits.
 - **NO_IMPORT** — never import.
 
-We run with default IGNORE_EXISTING. Consequence: editing
-`templates/realm-import-cm.yaml` (e.g., adding a new client) does *not*
-update a running realm. The new client only appears if the realm is
-re-created.
+In the original hybrid implementation we ran with IGNORE_EXISTING, which
+meant editing the realm-import ConfigMap to add a fifth client did *not*
+update a running realm. We accepted that as a homelab trade-off; in
+production it would be a real GitOps-purity hole.
 
-**Why we accept this.** Most Keycloak operators want UI edits to stick —
-imagine fine-tuning a brute-force-detection setting in the UI and having
-it overwritten on the next pod restart. IGNORE_EXISTING is the "safe"
-default the chart maintainers picked.
+**The Crossplane migration eliminates this.** provider-keycloak does
+true upsert against managed resources — Realm, Client, ClientScope, Group
+are all reconciled to spec. Adding a new entry under `clients:` in
+`identity/keycloak-config/values.yaml` and pushing is enough; the new
+client appears in the live realm within the reconciliation interval.
 
-**Workarounds for adding a new client to a live realm:**
+**The new trade-off** (opposite end of the same spectrum): UI edits to
+*managed* objects get reverted to spec. If you change a client's
+redirectUris through the admin UI, the next reconcile snaps it back. UI
+edits to *unmanaged* surfaces (users, identity providers, federation,
+brute-force settings) are untouched — only what's declared in CRs is
+managed.
 
-1. **Manual UI creation** matching the JSON spec — tedious but correct.
-2. **Delete the realm** in admin UI → next pod restart re-imports — only
-   safe on a fresh install (loses users, sessions, tokens).
-3. **One-off OVERWRITE_EXISTING boot** — set the env var, restart, revert.
-   Risky.
-4. **Future improvement (open work):** extend `client-secret-sync-job.yaml`
-   into a client-*upsert* Job. Already has the admin token and REST
-   access; adding "POST the client config if it doesn't exist" is a few
-   lines of bash. Would make new client provisioning truly git-push-only.
-
-Tracked under todo.md. Not a blocker today because the four currently
-defined clients cover the immediate scope.
+**Operator practice:** treat `identity/keycloak-config/values.yaml` like
+production code. Review changes via PR; never tune managed surfaces
+through the admin UI.
 
 ---
 
@@ -666,8 +667,11 @@ on git push.
   existing policy (used by ESO across all clusters) is still provisioned
   via `vault/playbooks/configure.yml`. Bringing it under vault-config is
   one entry in `values.yaml` — just needs an unmanaged → managed import.
-- **Realm-import client upsert.** See Q15. Currently adding a new client
-  to a live realm is manual.
+- **oauth2-proxy cookie secret seeding.** Was previously seeded by the
+  client-secret-sync Job. After the Crossplane migration, no flow seeds
+  it — manual one-time `vault kv put` is required (documented in
+  `vault-config/values.yaml`). Bringing it under provider-vault's
+  `KVSecretV2` would close the loop fully.
 
 Each of these is a one-session piece of work. The *infrastructure* (realm,
 Vault paths, ESO ClusterSecretStore, Crossplane provider) is in place;

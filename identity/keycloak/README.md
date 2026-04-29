@@ -5,6 +5,11 @@ single realm `engatwork`, fronted by ingress-nginx at
 `https://keycloak.apps.mgmt-forge.engatwork.com`. Every other cluster's apps
 trust this realm via OIDC.
 
+**This chart owns Keycloak the server** (StatefulSet + Postgres + bootstrap
+admin creds). The realm's *configuration* — clients, groups, scopes, mappers
+— lives in **`identity/keycloak-config/`**, reconciled by Crossplane
+provider-keycloak. See that chart for client provisioning.
+
 For conceptual background on IAM/OIDC/groups, see [QA.md](QA.md).
 For the chart's hard-won runtime gotchas (env-var names, proxy headers,
 relative path, DB Secret), see the header of [values.yaml](values.yaml).
@@ -16,19 +21,28 @@ relative path, DB Secret), see the header of [values.yaml](values.yaml).
 ```
 mgmt-forge (where Keycloak runs)
 └── keycloak ns
-    ├── Keycloak StatefulSet  (codecentric/keycloakx, Postgres backend)
-    ├── ConfigMap/keycloak-realm-import  ← engatwork realm + clients spec
-    ├── Job/keycloak-client-secret-sync  ← PostSync hook, Vault writer
-    └── ServiceAccount/keycloak-secret-sync (Vault role: keycloak-secret-sync)
+    └── Keycloak StatefulSet  (codecentric/keycloakx, Postgres backend)
 
-mgmt-forge → Vault (kv/forge/...)
+mgmt-control (where Crossplane runs — config + reconciliation lives here)
+└── crossplane-system ns
+    ├── provider-keycloak controller         (talks to Keycloak admin API)
+    ├── provider-vault controller            (talks to Vault HTTP API)
+    ├── Realm CR (engatwork)                 ← realm shape
+    ├── Client CRs (apps-launcher, backstage,
+    │              argocd-sre, argocd-devops) ← OIDC clients
+    ├── ClientScope CR (groups)              ← + GroupMembershipProtocolMapper
+    ├── Group CRs (platform-users, platform-sre)
+    ├── Connection Secrets (keycloak-client-<id>)
+    │   └─ written by Client CRs, hold auto-generated client_secret
+    └── PushSecret CRs                       ← mirror connection Secrets to Vault
+
+Vault (canonical store for cross-cluster reads)
     ├── kv/forge/keycloak/clients/apps-launcher   {client_id, client_secret}
     ├── kv/forge/keycloak/clients/backstage       {client_id, client_secret}
     ├── kv/forge/keycloak/clients/argocd-sre      {client_id, client_secret}
-    ├── kv/forge/keycloak/clients/argocd-devops   {client_id, client_secret}
-    └── kv/forge/oauth2-proxy/cookie-secret       {cookie_secret}
+    └── kv/forge/keycloak/clients/argocd-devops   {client_id, client_secret}
 
-mgmt-control (consumers — read via ESO from Vault)
+Consumers (mgmt-control today; ready for cross-cluster expansion)
     ├── oauth2-proxy ns  → Secret/oauth2-proxy-oidc  → gates Homer
     ├── homer ns         → (no secret; ingress auth-url subrequest)
     ├── backstage ns     → Secret/backstage-oidc      (env wiring pending custom image)
@@ -36,20 +50,21 @@ mgmt-control (consumers — read via ESO from Vault)
     └── argocd-devops ns → Secret/argocd-oidc         → configs.cm.oidc.config
 ```
 
-Vault config (the `keycloak-secret-sync` policy + auth-backend role) is itself
-declarative — see [`security/secrets/vault-config/`](../../security/secrets/vault-config/),
+Vault server config (policies + auth-backend roles) is itself declarative —
+see [`security/secrets/vault-config/`](../../security/secrets/vault-config/),
 reconciled by Crossplane provider-vault.
 
 ---
 
 ## The `engatwork` realm
 
-Imported once via `--import-realm` from
-[`templates/realm-import-cm.yaml`](templates/realm-import-cm.yaml).
-Default import strategy is **IGNORE_EXISTING**, so changes to the JSON do *not*
-propagate to a running realm — they apply only on first import / realm
-re-creation. To change a running realm, edit via the admin console (UI drift
-will survive subsequent pod restarts).
+Reconciled by Crossplane provider-keycloak from
+[`identity/keycloak-config/values.yaml`](../keycloak-config/values.yaml).
+**Trade-off vs the previous realm-import flow:** provider-keycloak does true
+upsert with active drift correction. UI edits to managed objects (realm,
+clients, scopes, groups) get reverted to spec on the next reconciliation
+interval. Git is the only place to change Keycloak's *managed* surface.
+Unmanaged things (users, identity providers, federation) are untouched.
 
 ### Clients
 
@@ -89,58 +104,51 @@ Default for unmatched users is `role:readonly` in both instances.
 
 ## Secret flow
 
-1. **Realm import**: Keycloak boots, `--import-realm` reads the ConfigMap,
-   creates the realm and the four clients. Each client's secret is
-   auto-generated and stored inside Keycloak.
-2. **PostSync Job** (`keycloak-client-secret-sync`):
-   - Authenticates to Keycloak admin REST API using the bootstrap admin
-     creds (env-from `Secret/keycloak-admin`, sourced by ESO from
-     `kv/forge/keycloak`).
-   - Authenticates to Vault via Kubernetes auth at mount
-     `kubernetes-mgmt-forge`, role `keycloak-secret-sync`.
-   - For each `clientId` in the `CLIENTS` env list: looks up UUID, fetches
-     the secret, writes `{client_id, client_secret}` to
-     `kv/forge/keycloak/clients/<clientId>`.
-   - Seeds `kv/forge/oauth2-proxy/cookie-secret` once (idempotent — only
-     writes if absent, so live oauth2-proxy sessions are never invalidated).
-3. **ESO** in each consumer cluster (`vault-forge` ClusterSecretStore via the
-   `forge-reader` policy) syncs the secrets into the consumer namespaces.
-4. **Consumers** read the resulting Secret (via `existingSecret`,
+1. **Realm + clients reconciled** by provider-keycloak from
+   `identity/keycloak-config/values.yaml`. Each `Client` CR causes
+   provider-keycloak to call Keycloak's admin REST API; if the client
+   doesn't exist, it's created (with an auto-generated client_secret); if
+   it does, drift is corrected.
+2. **Connection Secret emitted** by each Client CR into
+   `crossplane-system/keycloak-client-<id>`, containing the generated
+   `attribute.client_secret` key.
+3. **PushSecret to Vault** — for each client, two PushSecret resources mirror
+   `client_secret` (from connection Secret) and `client_id` (from a tiny
+   composite Secret carrying the literal id) to
+   `kv/forge/keycloak/clients/<id>`.
+4. **ESO** in consumer namespaces reads from the same Vault paths it always
+   has — no consumer chart changes needed for the migration.
+5. **Consumers** read the resulting Secret (via `existingSecret`,
    `extraEnvVarsSecrets`, `$argocd-oidc:client-secret`, etc.).
 
-The Vault role + policy that authorize the Job are defined declaratively in
-`security/secrets/vault-config/values.yaml`, reconciled by Crossplane.
+The Vault role + policy that authorize ESO PushSecret are defined declaratively
+in `security/secrets/vault-config/values.yaml`, reconciled by Crossplane
+provider-vault.
 
 ---
 
 ## Adding a new OIDC client
 
-1. Edit `templates/realm-import-cm.yaml` — append the client object to
-   `clients[]` (clientId, redirectUris, webOrigins, scopes).
-2. Edit `templates/client-secret-sync-job.yaml` — append the new clientId to
-   the space-separated `CLIENTS` env value.
-3. Bump `Chart.yaml` version (any patch bump triggers ArgoCD reconcile).
-4. Edit the consumer chart — add an ExternalSecret pulling from
+1. Add an entry under `clients:` in
+   [`identity/keycloak-config/values.yaml`](../keycloak-config/values.yaml)
+   with name, accessType, rootUrl, validRedirectUris, webOrigins.
+2. Edit the consumer chart — add an ExternalSecret pulling from
    `kv/forge/keycloak/clients/<new-client>`, wire its OIDC config.
-5. `git push`.
+3. `git push`.
 
-If Keycloak is already running on a previous realm definition, the new client
-will not appear in the live realm until you either:
-- delete the realm via admin UI (next pod restart re-imports the full JSON), or
-- create the client manually via admin UI matching the JSON spec.
-
-This limitation is by design (IGNORE_EXISTING preserves UI edits). For pure
-git-push-only client provisioning, the secret-sync Job needs to be extended
-into a client-upsert Job — open work, see todo.md.
+Crossplane creates the client in Keycloak; provider-keycloak's connection
+Secret carries the auto-generated client_secret; PushSecret mirrors to Vault;
+ESO syncs to the consumer namespace. Pure GitOps, no kubectl.
 
 ---
 
 ## Common operations
 
 **Rotate a client secret** — admin UI → realm `engatwork` → Clients → pick the
-client → Credentials tab → "Regenerate secret". Trigger a re-run of the
-secret-sync Job (`kubectl annotate app keycloak-mgmt-forge \
-argocd.argoproj.io/refresh=hard`) so Vault picks up the new value.
+client → Credentials tab → "Regenerate secret". Within ~1 minute,
+provider-keycloak's reconciler will detect the change in the connection
+Secret; PushSecret then mirrors the new value to Vault; ESO refreshes the
+consumer's Secret on its next interval.
 
 **Reset a user's password** — admin UI → Users → search → Credentials →
 "Reset password". Or via kcadm.sh from inside the pod.
@@ -158,12 +166,10 @@ Action menu → "Partial export"; diff against `realm-import-cm.yaml`.
 
 | Wave | What | Notes |
 |---|---|---|
-| 0 | cert-manager, ingress-nginx | Pattern A |
+| 0 | cert-manager, ingress-nginx, crossplane core | Pattern A |
 | 1 | external-secrets, vault | ESO + Vault server |
-| 2 | **keycloak (this chart)** | imports realm + clients on first boot |
-| PostSync | keycloak-client-secret-sync Job | populates Vault |
+| 2 | **keycloak server (this chart)**, crossplane-providers | server up + provider CRDs registered |
 | 3 | oauth2-proxy, argocd-sre OIDC, argocd-devops OIDC | consumers |
-| 4 | homer | gated by oauth2-proxy |
-
-Crossplane / vault-config can run in parallel waves 1–4; provider-vault
-itself must reconcile before vault-config CRs can be applied.
+| 4 | vault-config | Crossplane Vault Policy + AuthBackendRole CRs |
+| 5 | **keycloak-config** | Crossplane Realm + Client + Group CRs; emits connection Secrets; PushSecrets mirror to Vault |
+| 6 | homer | gated by oauth2-proxy |

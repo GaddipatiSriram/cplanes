@@ -1,0 +1,18 @@
+apiVersion: v2
+name: keycloak-config
+description: |
+  Declarative Keycloak realm + clients + groups + scopes via Crossplane
+  provider-keycloak. Replaces realm-import-cm.yaml and the post-sync
+  client-secret-sync Job. Adding a new OIDC client is a values entry +
+  git push; Crossplane reconciles.
+
+  Connection Secrets (containing each client's auto-generated client_secret)
+  land in crossplane-system on mgmt-control. PushSecret resources mirror
+  them to Vault at kv/forge/keycloak/clients/<id> so the existing consumer
+  ExternalSecrets keep working unchanged.
+
+  Deploys to mgmt-control where Crossplane runs — provider-keycloak reaches
+  Keycloak (on mgmt-forge) over the network.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

@@ -2,7 +2,7 @@ apiVersion: v2
 name: keycloak-forge
 description: Umbrella chart — Keycloak (codecentric/keycloakx) + PostgreSQL (bitnami) for mgmt-forge
 type: application
-version: 0.3.0
+version: 0.4.0
 appVersion: "26.0.0"
 
 # keycloakx = Keycloak Quarkus distribution (modern, Keycloak 20+).

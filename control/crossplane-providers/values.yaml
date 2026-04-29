@@ -29,6 +29,15 @@
 provider:
   vault:
     package: "xpkg.upbound.io/upbound/provider-vault:v1.0.0"
+  # provider-keycloak — wraps the mrparkers Terraform Keycloak provider.
+  # CRD API groups (best-known forms; verify with `kubectl get crds | grep keycloak`
+  # after first install):
+  #   realm.keycloak.crossplane.io           Realm
+  #   openidclient.keycloak.crossplane.io    Client, ClientScope, ClientDefaultScopes,
+  #                                          GroupMembershipProtocolMapper
+  #   group.keycloak.crossplane.io           Group, DefaultGroups
+  keycloak:
+    package: "xpkg.upbound.io/crossplane-contrib/provider-keycloak:v3.4.0"
 
 providerConfig:
   vault:
@@ -37,10 +46,24 @@ providerConfig:
     # templates/vault-token-externalsecret.yaml.
     secretName: "vault-token"
     secretKey: "token"
+  keycloak:
+    url: "https://keycloak.apps.mgmt-forge.engatwork.com"
+    basePath: "/auth"
+    realm: "master"
+    clientId: "admin-cli"
+    # Admin creds materialized as Secret/keycloak-admin in crossplane-system
+    # by templates/keycloak-admin-externalsecret.yaml. Sourced from the same
+    # Vault path that bootstraps the Keycloak pod itself (kv/forge/keycloak).
+    secretName: "keycloak-admin"
 
 externalSecret:
   refreshInterval: 1h
   secretStoreRef:
     name: vault-forge
     kind: ClusterSecretStore
-  vaultPath: "forge/crossplane/vault-token"
+  vault:
+    vaultPath: "forge/crossplane/vault-token"
+  keycloakAdmin:
+    vaultPath: "forge/keycloak"
+    usernameProperty: "KC_BOOTSTRAP_ADMIN_USERNAME"
+    passwordProperty: "KC_BOOTSTRAP_ADMIN_PASSWORD"

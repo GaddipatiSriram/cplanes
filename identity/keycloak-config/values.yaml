@@ -1,0 +1,116 @@
+# Declarative Keycloak realm + clients managed via Crossplane provider-keycloak.
+# Adding a client/group is purely git-push — Crossplane reconciles.
+#
+# Connection Secrets (containing each Client's auto-generated client_secret)
+# are written to crossplane-system. PushSecret resources mirror to Vault so
+# downstream consumers (oauth2-proxy, backstage, argocd) read from the same
+# kv/forge/keycloak/clients/<id> paths they read before the migration —
+# zero changes needed in consumer charts.
+
+providerConfigRef:
+  name: keycloak-default
+
+connectionSecretNamespace: crossplane-system
+
+# Vault path prefix where each client's secret is mirrored via PushSecret.
+# Each client's mirror lands at <vaultClientsPathPrefix>/<clientName>.
+vaultClientsPathPrefix: "forge/keycloak/clients"
+
+vaultSecretStore:
+  name: vault-forge
+  kind: ClusterSecretStore
+
+# ===========================================================================
+# Realm
+# ===========================================================================
+realm:
+  name: engatwork
+  enabled: true
+  displayName: "engatwork homelab"
+  displayNameHtml: "<b>engatwork</b> homelab"
+  registrationAllowed: false
+  resetPasswordAllowed: true
+  rememberMe: true
+  loginWithEmailAllowed: true
+  duplicateEmailsAllowed: false
+  sslRequired: external
+  accessTokenLifespan: "5m"
+  ssoSessionIdleTimeout: "30m"
+  ssoSessionMaxLifespan: "10h"
+
+# ===========================================================================
+# Groups
+# ===========================================================================
+groups:
+  - platform-users
+  - platform-sre
+
+defaultGroups:
+  - platform-users
+
+# ===========================================================================
+# `groups` clientScope + group-membership protocol mapper
+# ===========================================================================
+groupsScope:
+  name: groups
+  description: "OIDC scope mapping a user's groups into the ID token."
+  consentScreenText: "User group memberships"
+  includeInTokenScope: true
+
+# ===========================================================================
+# OpenID Connect clients
+# ===========================================================================
+clients:
+  apps-launcher:
+    name: "engatwork apps launcher (Homer + oauth2-proxy)"
+    description: "OIDC client used by oauth2-proxy in front of Homer."
+    accessType: CONFIDENTIAL
+    rootUrl: "https://home.apps.mgmt-control.engatwork.com"
+    baseUrl: "/"
+    validRedirectUris:
+      - "https://home.apps.mgmt-control.engatwork.com/oauth2/callback"
+    webOrigins:
+      - "https://home.apps.mgmt-control.engatwork.com"
+    extraDefaultScopes:
+      - groups
+
+  backstage:
+    name: "Backstage developer portal"
+    description: "OIDC client for the Backstage auth-backend OIDC provider."
+    accessType: CONFIDENTIAL
+    rootUrl: "https://backstage.apps.mgmt-control.engatwork.com"
+    baseUrl: "/"
+    validRedirectUris:
+      - "https://backstage.apps.mgmt-control.engatwork.com/api/auth/oidc/handler/frame"
+    webOrigins:
+      - "https://backstage.apps.mgmt-control.engatwork.com"
+    extraDefaultScopes:
+      - groups
+
+  argocd-sre:
+    name: "ArgoCD — SRE instance"
+    description: "OIDC client for argocd-sre (platform GitOps)."
+    accessType: CONFIDENTIAL
+    rootUrl: "https://argocd-sre.apps.mgmt-control.engatwork.com"
+    baseUrl: "/"
+    validRedirectUris:
+      - "https://argocd-sre.apps.mgmt-control.engatwork.com/auth/callback"
+      - "http://localhost:8085/auth/callback"
+    webOrigins:
+      - "https://argocd-sre.apps.mgmt-control.engatwork.com"
+    extraDefaultScopes:
+      - groups
+
+  argocd-devops:
+    name: "ArgoCD — DevOps instance"
+    description: "OIDC client for argocd-devops (application GitOps)."
+    accessType: CONFIDENTIAL
+    rootUrl: "https://argocd-devops.apps.mgmt-control.engatwork.com"
+    baseUrl: "/"
+    validRedirectUris:
+      - "https://argocd-devops.apps.mgmt-control.engatwork.com/auth/callback"
+      - "http://localhost:8085/auth/callback"
+    webOrigins:
+      - "https://argocd-devops.apps.mgmt-control.engatwork.com"
+    extraDefaultScopes:
+      - groups

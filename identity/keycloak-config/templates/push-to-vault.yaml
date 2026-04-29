@@ -1,0 +1,80 @@
+# PushSecret resources mirror each Crossplane connection Secret (containing
+# the auto-generated client_secret) to Vault at <vaultClientsPathPrefix>/<id>.
+# Also writes the (non-secret) client_id literally so the Vault path schema
+# matches what consumers' ExternalSecrets already expect:
+#   { client_id, client_secret }
+#
+# Why mirror to Vault rather than read connection Secrets directly:
+#   - keeps a single source of truth for cross-cluster reads (today all
+#     consumers happen to be on mgmt-control, but we don't want to bake
+#     that assumption in)
+#   - audit + version history via Vault's KV v2
+#   - existing consumer ExternalSecrets keep working unchanged
+
+{{- range $clientId, $cfg := .Values.clients }}
+---
+# Composite Secret for {{ $clientId }} — pulls client_secret from the
+# Crossplane connection Secret and adds the literal client_id.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: keycloak-client-{{ $clientId }}-composite
+  namespace: {{ $.Values.connectionSecretNamespace | quote }}
+  annotations:
+    # Force regeneration of this Secret if the connection Secret rotates;
+    # external-secrets PushSecret reconciles diffs.
+    keycloak-config/client-id: {{ $clientId | quote }}
+type: Opaque
+stringData:
+  client_id: {{ $clientId | quote }}
+---
+apiVersion: external-secrets.io/v1alpha1
+kind: PushSecret
+metadata:
+  name: keycloak-client-{{ $clientId }}-to-vault
+  namespace: {{ $.Values.connectionSecretNamespace | quote }}
+  labels:
+    app.kubernetes.io/name: keycloak-pushsecret-{{ $clientId }}
+    app.kubernetes.io/part-of: identity
+spec:
+  refreshInterval: 1h
+  secretStoreRefs:
+    - name: {{ $.Values.vaultSecretStore.name | quote }}
+      kind: {{ $.Values.vaultSecretStore.kind | quote }}
+  selector:
+    secret:
+      # The connection Secret written by the Client CR holds client_secret
+      # under the key 'attribute.client_secret' (Terraform-flavored).
+      name: keycloak-client-{{ $clientId }}
+  data:
+    - match:
+        secretKey: attribute.client_secret
+        remoteRef:
+          remoteKey: {{ printf "%s/%s" $.Values.vaultClientsPathPrefix $clientId | quote }}
+          property: client_secret
+---
+# Second PushSecret for the literal client_id so the same Vault key carries
+# both fields (consumers expect {client_id, client_secret} in one path).
+apiVersion: external-secrets.io/v1alpha1
+kind: PushSecret
+metadata:
+  name: keycloak-client-{{ $clientId }}-id-to-vault
+  namespace: {{ $.Values.connectionSecretNamespace | quote }}
+  labels:
+    app.kubernetes.io/name: keycloak-pushsecret-{{ $clientId }}-id
+    app.kubernetes.io/part-of: identity
+spec:
+  refreshInterval: 1h
+  secretStoreRefs:
+    - name: {{ $.Values.vaultSecretStore.name | quote }}
+      kind: {{ $.Values.vaultSecretStore.kind | quote }}
+  selector:
+    secret:
+      name: keycloak-client-{{ $clientId }}-composite
+  data:
+    - match:
+        secretKey: client_id
+        remoteRef:
+          remoteKey: {{ printf "%s/%s" $.Values.vaultClientsPathPrefix $clientId | quote }}
+          property: client_id
+{{- end }}

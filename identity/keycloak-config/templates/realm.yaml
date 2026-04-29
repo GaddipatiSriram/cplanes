@@ -1,0 +1,31 @@
+# Realm CR — provider-keycloak reconciles to Keycloak's admin REST API,
+# creating (or updating) the engatwork realm.
+#
+# NOTE: provider-keycloak's reconciler does true upsert. UI edits to the
+# realm get reverted to spec on the next reconciliation interval — this is
+# the trade-off for "pure GitOps." Drift is corrected, not preserved.
+
+apiVersion: realm.keycloak.crossplane.io/v1alpha1
+kind: Realm
+metadata:
+  name: {{ .Values.realm.name | quote }}
+  labels:
+    app.kubernetes.io/name: keycloak-realm
+    app.kubernetes.io/part-of: identity
+spec:
+  forProvider:
+    realm: {{ .Values.realm.name | quote }}
+    enabled: {{ .Values.realm.enabled }}
+    displayName: {{ .Values.realm.displayName | quote }}
+    displayNameHtml: {{ .Values.realm.displayNameHtml | quote }}
+    registrationAllowed: {{ .Values.realm.registrationAllowed }}
+    resetPasswordAllowed: {{ .Values.realm.resetPasswordAllowed }}
+    rememberMe: {{ .Values.realm.rememberMe }}
+    loginWithEmailAllowed: {{ .Values.realm.loginWithEmailAllowed }}
+    duplicateEmailsAllowed: {{ .Values.realm.duplicateEmailsAllowed }}
+    sslRequired: {{ .Values.realm.sslRequired | quote }}
+    accessTokenLifespan: {{ .Values.realm.accessTokenLifespan | quote }}
+    ssoSessionIdleTimeout: {{ .Values.realm.ssoSessionIdleTimeout | quote }}
+    ssoSessionMaxLifespan: {{ .Values.realm.ssoSessionMaxLifespan | quote }}
+  providerConfigRef:
+    name: {{ .Values.providerConfigRef.name | quote }}

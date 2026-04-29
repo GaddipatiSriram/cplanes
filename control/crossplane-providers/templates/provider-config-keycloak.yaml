@@ -1,0 +1,31 @@
+# ProviderConfig for provider-keycloak. Authenticates to Keycloak's admin
+# REST API using username+password from Secret/keycloak-admin (rendered by
+# the ExternalSecret in this same chart).
+#
+# Wave 2 — after the Provider has installed its CRDs (wave 0) and the
+# admin Secret has been materialized (wave 1).
+
+apiVersion: keycloak.crossplane.io/v1alpha1
+kind: ProviderConfig
+metadata:
+  name: keycloak-default
+  labels:
+    app.kubernetes.io/name: provider-keycloak
+    app.kubernetes.io/part-of: platform
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+    argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
+spec:
+  url: {{ .Values.providerConfig.keycloak.url | quote }}
+  basePath: {{ .Values.providerConfig.keycloak.basePath | quote }}
+  realm: {{ .Values.providerConfig.keycloak.realm | quote }}
+  clientId: {{ .Values.providerConfig.keycloak.clientId | quote }}
+  credentials:
+    source: Secret
+    secretRef:
+      namespace: crossplane-system
+      name: {{ .Values.providerConfig.keycloak.secretName | quote }}
+      # provider-keycloak (Terraform-flavored) reads username and password
+      # from these keys when source: Secret is set with the admin auth
+      # method (default).
+      key: password

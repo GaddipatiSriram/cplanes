@@ -1,0 +1,42 @@
+{{- range $clientId, $cfg := .Values.clients }}
+---
+# OpenID Connect Client — {{ $clientId }}
+# Generated client_secret lands in Secret/keycloak-client-{{ $clientId }} in
+# the connectionSecretNamespace. PushSecret in templates/push-to-vault.yaml
+# mirrors it to Vault at <vaultClientsPathPrefix>/{{ $clientId }}.
+apiVersion: openidclient.keycloak.crossplane.io/v1alpha1
+kind: Client
+metadata:
+  name: {{ $clientId | quote }}
+  labels:
+    app.kubernetes.io/name: keycloak-client-{{ $clientId }}
+    app.kubernetes.io/part-of: identity
+spec:
+  forProvider:
+    realmIdRef:
+      name: {{ $.Values.realm.name | quote }}
+    clientId: {{ $clientId | quote }}
+    name: {{ $cfg.name | quote }}
+    description: {{ $cfg.description | quote }}
+    enabled: true
+    accessType: {{ $cfg.accessType | quote }}
+    standardFlowEnabled: true
+    implicitFlowEnabled: false
+    directAccessGrantsEnabled: false
+    serviceAccountsEnabled: false
+    rootUrl: {{ $cfg.rootUrl | quote }}
+    baseUrl: {{ $cfg.baseUrl | quote }}
+    validRedirectUris:
+      {{- range $cfg.validRedirectUris }}
+      - {{ . | quote }}
+      {{- end }}
+    webOrigins:
+      {{- range $cfg.webOrigins }}
+      - {{ . | quote }}
+      {{- end }}
+  providerConfigRef:
+    name: {{ $.Values.providerConfigRef.name | quote }}
+  writeConnectionSecretToRef:
+    namespace: {{ $.Values.connectionSecretNamespace | quote }}
+    name: keycloak-client-{{ $clientId }}
+{{- end }}

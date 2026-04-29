@@ -1,0 +1,17 @@
+# Crossplane Provider — installs provider-keycloak.
+# After this is Healthy, the keycloak.crossplane.io API group's CRDs become
+# available cluster-wide (Realm, Client, ClientScope, Group, ProtocolMappers,
+# etc.). Provider talks to Keycloak's admin REST API at the URL configured
+# in templates/provider-config-keycloak.yaml.
+
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-keycloak
+  labels:
+    app.kubernetes.io/name: provider-keycloak
+    app.kubernetes.io/part-of: platform
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  package: {{ .Values.provider.keycloak.package | quote }}

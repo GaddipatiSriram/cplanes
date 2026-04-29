@@ -1,0 +1,71 @@
+# `groups` ClientScope + group-membership protocol mapper.
+# Every client that lists 'groups' in its extraDefaultScopes pulls this
+# scope's mapper into the ID token, which downstream consumers (oauth2-proxy,
+# argocd, backstage) read for RBAC.
+
+apiVersion: openidclient.keycloak.crossplane.io/v1alpha1
+kind: ClientScope
+metadata:
+  name: {{ .Values.groupsScope.name | quote }}
+  labels:
+    app.kubernetes.io/name: keycloak-clientscope-groups
+    app.kubernetes.io/part-of: identity
+spec:
+  forProvider:
+    realmIdRef:
+      name: {{ .Values.realm.name | quote }}
+    name: {{ .Values.groupsScope.name | quote }}
+    description: {{ .Values.groupsScope.description | quote }}
+    consentScreenText: {{ .Values.groupsScope.consentScreenText | quote }}
+    includeInTokenScope: {{ .Values.groupsScope.includeInTokenScope }}
+  providerConfigRef:
+    name: {{ .Values.providerConfigRef.name | quote }}
+---
+apiVersion: openidclient.keycloak.crossplane.io/v1alpha1
+kind: GroupMembershipProtocolMapper
+metadata:
+  name: groups-mapper
+  labels:
+    app.kubernetes.io/name: keycloak-mapper-groups
+    app.kubernetes.io/part-of: identity
+spec:
+  forProvider:
+    realmIdRef:
+      name: {{ .Values.realm.name | quote }}
+    clientScopeIdRef:
+      name: {{ .Values.groupsScope.name | quote }}
+    name: groups
+    claimName: groups
+    fullPath: false
+    addToIdToken: true
+    addToAccessToken: true
+    addToUserinfo: true
+  providerConfigRef:
+    name: {{ .Values.providerConfigRef.name | quote }}
+{{- range $clientId, $cfg := .Values.clients }}
+{{- if has "groups" ($cfg.extraDefaultScopes | default list) }}
+---
+# Attach the `groups` scope as a default scope on client {{ $clientId }}.
+apiVersion: openidclient.keycloak.crossplane.io/v1alpha1
+kind: ClientDefaultScopes
+metadata:
+  name: {{ printf "%s-default-scopes" $clientId | quote }}
+  labels:
+    app.kubernetes.io/name: keycloak-defaultscopes-{{ $clientId }}
+    app.kubernetes.io/part-of: identity
+spec:
+  forProvider:
+    realmIdRef:
+      name: {{ $.Values.realm.name | quote }}
+    clientIdRef:
+      name: {{ $clientId | quote }}
+    defaultScopes:
+      - "web-origins"
+      - "profile"
+      - "roles"
+      - "email"
+      - {{ $.Values.groupsScope.name | quote }}
+  providerConfigRef:
+    name: {{ $.Values.providerConfigRef.name | quote }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,57 @@
+# ApplicationSet — declarative Keycloak realm/clients via Crossplane
+# provider-keycloak. Targets role=control (mgmt-control, where Crossplane
+# lives) — the rendered objects are Crossplane CRs, not raw Keycloak
+# config. provider-keycloak reaches Keycloak (on mgmt-forge) over HTTPS.
+#
+# Wave 5 — must run after crossplane-providers (wave 2), Keycloak itself
+# (wave 2 in identity AppSet, on mgmt-forge), and vault-config (wave 4).
+# Only valid once provider-keycloak is Healthy and ProviderConfig is online.
+#
+# Discovery: picked up by sre-root-app.yaml — no kubectl needed.
+
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: keycloak-config
+  namespace: argocd-sre
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            role: control
+  template:
+    metadata:
+      name: 'keycloak-config-{{.name}}'
+      labels:
+        app.kubernetes.io/name: keycloak-config
+        app.kubernetes.io/part-of: platform
+      annotations:
+        argocd.argoproj.io/sync-wave: "5"
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/GaddipatiSriram/cplanes.git
+        targetRevision: HEAD
+        path: identity/keycloak-config
+        helm:
+          releaseName: keycloak-config
+      destination:
+        server: '{{.server}}'
+        namespace: crossplane-system
+      syncPolicy:
+        automated:
+          selfHeal: true
+          prune: true
+        syncOptions:
+          - CreateNamespace=false
+          - ServerSideApply=true
+          - SkipDryRunOnMissingResource=true
+        retry:
+          limit: 10
+          backoff:
+            duration: 10s
+            factor: 2
+            maxDuration: 3m
