@@ -10,6 +10,14 @@
 #   - UI at https://argocd-devops.apps.mgmt-control.engatwork.com
 
 argo-cd:
+  # CRDs (Application, ApplicationSet, AppProject) are cluster-scoped
+  # singletons — argocd-sre's release already owns them. Disable here so
+  # the two ArgoCD instances can coexist on one cluster without helm
+  # ownership conflicts.
+  crds:
+    install: false
+    keep: false
+
   global:
     domain: argocd-devops.apps.mgmt-control.engatwork.com
 

@@ -1,0 +1,69 @@
+# Application — argocd-sre self-management.
+#
+# After the initial `helm install argocd-sre cplanes/control/argo-cd/ ...`
+# bootstrap on mgmt-control (chicken-and-egg: there has to be SOMETHING
+# applying the first chart), this Application takes over.
+#
+# From here, all future chart upgrades flow through git → ArgoCD →
+# rendered manifests → cluster, like every other service on mgmt-control.
+#
+# The bootstrap helm release Secret in argocd-sre namespace stays as a
+# historical artifact; ArgoCD's helm source mode renders manifests via
+# `helm template`, it doesn't invoke `helm install`/`upgrade`, so the
+# two coexist cleanly.
+#
+# Apply once:
+#   kubectl --context mgmt-control apply -f argo-applications/sre/control/argocd-sre-app.yaml
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argocd-sre
+  namespace: argocd-sre
+  labels:
+    app.kubernetes.io/name: argocd-sre
+    app.kubernetes.io/part-of: platform
+  annotations:
+    argocd.argoproj.io/sync-wave: "-10"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/GaddipatiSriram/cplanes.git
+    targetRevision: HEAD
+    path: control/argo-cd
+    helm:
+      releaseName: argocd-sre
+      valueFiles:
+        - values-sre.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd-sre
+  # ArgoCD's argocd-cm ConfigMap gets webhook secrets and SSO config
+  # patched in-cluster; argocd-secret has plaintext fields populated by
+  # the controller. Both should be ignored to avoid sync churn.
+  ignoreDifferences:
+    - group: ""
+      kind: Secret
+      name: argocd-secret
+      jsonPointers:
+        - /data
+    - group: apps
+      kind: StatefulSet
+      name: argocd-sre-application-controller
+      jsonPointers:
+        - /spec/volumeClaimTemplates
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: false   # never prune the controller managing this App
+    syncOptions:
+      - CreateNamespace=false
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m

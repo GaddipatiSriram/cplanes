@@ -1,0 +1,67 @@
+# Application — argocd-devops managed by argocd-sre.
+#
+# argocd-sre is the platform GitOps controller — it manages every other
+# platform service, including argocd-devops itself. argocd-devops is for
+# app-team workloads only; it doesn't need to manage anything in the
+# argocd-sre or platform layer.
+#
+# Initial bootstrap was a direct `helm install argocd-devops ...`. From
+# here, this Application renders the same chart with values-devops.yaml
+# and reconciles drift.
+#
+# CRDs (Application, ApplicationSet, AppProject) are cluster-scoped and
+# already owned by argocd-sre's release — values-devops.yaml has
+# crds.install: false, so we won't fight over CRD ownership.
+#
+# Apply once:
+#   kubectl --context mgmt-control apply -f argo-applications/sre/control/argocd-devops-app.yaml
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argocd-devops
+  namespace: argocd-sre
+  labels:
+    app.kubernetes.io/name: argocd-devops
+    app.kubernetes.io/part-of: platform
+  annotations:
+    argocd.argoproj.io/sync-wave: "-10"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/GaddipatiSriram/cplanes.git
+    targetRevision: HEAD
+    path: control/argo-cd
+    helm:
+      releaseName: argocd-devops
+      valueFiles:
+        - values-devops.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd-devops
+  ignoreDifferences:
+    - group: ""
+      kind: Secret
+      name: argocd-secret
+      jsonPointers:
+        - /data
+    - group: apps
+      kind: StatefulSet
+      name: argocd-devops-application-controller
+      jsonPointers:
+        - /spec/volumeClaimTemplates
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: false
+    syncOptions:
+      - CreateNamespace=false
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
