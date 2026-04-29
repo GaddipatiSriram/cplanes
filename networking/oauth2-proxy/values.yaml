@@ -38,6 +38,10 @@ oauth2-proxy:
     provider: oidc
     provider-display-name: "engatwork SSO"
     oidc-issuer-url: "https://keycloak.apps.mgmt-forge.engatwork.com/auth/realms/engatwork"
+    # TODO: drop once Keycloak's ingress has a real cert (cert-manager
+    # Certificate CR + valid ClusterIssuer). Today the ingress presents
+    # the default ingress.local cert.
+    ssl-insecure-skip-verify: "true"
     redirect-url: "https://home.apps.mgmt-control.engatwork.com/oauth2/callback"
     # Allow any email — the realm itself gates who can log in. We're not using
     # email-domain filtering as a second layer.
