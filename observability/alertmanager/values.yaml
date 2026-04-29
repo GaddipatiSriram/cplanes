@@ -20,9 +20,16 @@ alertmanager:
     accessModes: [ReadWriteOnce]
     size: 5Gi
   # external-facing URL — what users see in the Alertmanager UI links
-  # (and what Slack click-throughs target).  Wire to a Grafana
-  # Alertmanager view or a dedicated ingress later.
-  externalUrl: "http://alertmanager.observability.svc.cluster.local:9093"
+  # (and what Slack click-throughs target). Now points at the dedicated
+  # ingress (below) so links resolve to the same browser-accessible URL.
+  externalUrl: "https://alertmanager.apps.mgmt-observability.engatwork.com"
+
+  # Ingress for the Alertmanager UI (silence management, alert browsing).
+  # Backend is the chart-rendered Service `alertmanager-operated` (port 9093).
+  ingress:
+    enabled: true
+    className: nginx
+    host: alertmanager.apps.mgmt-observability.engatwork.com
 
 # Routing config.
 #

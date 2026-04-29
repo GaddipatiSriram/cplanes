@@ -1,0 +1,38 @@
+{{- /*
+Ingress for Alertmanager UI (silence management, alert browsing).
+
+Behind ingress-nginx + cert-manager. The Alertmanager CR creates a
+Service named `alertmanager-operated` in this namespace pointing at the
+Alertmanager StatefulSet pods on port 9093.
+
+Anonymous read at the ingress; harden later with OAuth2-Proxy if
+exposed beyond homelab.
+*/}}
+{{- if .Values.alertmanager.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: alertmanager
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    app.kubernetes.io/part-of: observability
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: {{ .Values.alertmanager.ingress.className | default "nginx" | quote }}
+  rules:
+    - host: {{ .Values.alertmanager.ingress.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: alertmanager-operated
+                port:
+                  number: 9093
+  tls:
+    - hosts:
+        - {{ .Values.alertmanager.ingress.host | quote }}
+      secretName: alertmanager-tls
+{{- end }}

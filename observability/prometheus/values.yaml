@@ -154,10 +154,28 @@ kube-prometheus-stack:
 
     # The operator creates a Service for Prometheus automatically; we
     # leave it ClusterIP.  Grafana reaches it via cluster-internal DNS
-    # (prometheus-operated.observability.svc:9090).  No ingress —
-    # Prometheus's UI is admin-only, accessed via kubectl port-forward.
+    # (prometheus-operated.observability.svc:9090).
     service:
       type: ClusterIP
+
+    # Ingress for the Prometheus UI (PromQL explorer, target health,
+    # rule status). Behind ingress-nginx + cert-manager. Anonymous read
+    # access — no auth at the ingress; harden with Keycloak OAuth2-Proxy
+    # later if exposed beyond homelab.
+    ingress:
+      enabled: true
+      ingressClassName: nginx
+      annotations:
+        cert-manager.io/cluster-issuer: letsencrypt-prod
+      hosts:
+        - prometheus.apps.mgmt-observability.engatwork.com
+      paths:
+        - /
+      pathType: Prefix
+      tls:
+        - hosts:
+            - prometheus.apps.mgmt-observability.engatwork.com
+          secretName: prometheus-tls
 
   # =============================================================================
   # Common chart settings
