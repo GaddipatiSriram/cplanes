@@ -66,9 +66,14 @@ opentelemetry-collector:
         target_info:
           enabled: false
 
-      # Logs → Loki via the loki exporter (uses Loki push API).
-      loki:
-        endpoint: http://loki.observability.svc:3100/loki/api/v1/push
+      # Logs → Loki via OTLP HTTP.  The standalone `loki` exporter was
+      # removed from otelcol-contrib (v0.130+); Loki v3.x has a native
+      # OTLP HTTP receiver at /otlp/v1/logs that the otlphttp exporter
+      # targets automatically.
+      otlphttp/loki:
+        endpoint: http://loki.observability.svc:3100/otlp
+        tls:
+          insecure: true
 
       # Debug / dev exporter — log everything to stdout when investigating.
       # Disabled in pipelines below; enable via tempfile when debugging.
@@ -88,7 +93,7 @@ opentelemetry-collector:
         logs:
           receivers: [otlp]
           processors: [memory_limiter, batch]
-          exporters: [loki]
+          exporters: [otlphttp/loki]
       telemetry:
         metrics:
           address: 0.0.0.0:8888
