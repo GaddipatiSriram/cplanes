@@ -35,9 +35,14 @@ ingress:
   host: home.apps.mgmt-control.engatwork.com
   annotations:
     cert-manager.io/cluster-issuer: vault-pki
-    # Auth subrequest — every request is forwarded to oauth2-proxy at
-    # /oauth2/auth. 202 means "let it through"; 401 means "not authenticated".
-    nginx.ingress.kubernetes.io/auth-url: "https://home.apps.mgmt-control.engatwork.com/oauth2/auth"
+    # Auth subrequest — internal Service URL, NOT the public hostname.
+    # ingress-nginx makes the subrequest from inside the controller pod;
+    # pod DNS resolves cluster.local but not engatwork.com.  Pointing
+    # auth-url at the public hostname → "Host not found" → 502 → 500
+    # to the browser.
+    nginx.ingress.kubernetes.io/auth-url: "http://oauth2-proxy.oauth2-proxy.svc.cluster.local/oauth2/auth"
+    # auth-signin IS the public URL — the browser is the one following
+    # this redirect, and it resolves engatwork.com via your network's DNS.
     # On 401, redirect the browser to /oauth2/start, which begins the OIDC
     # dance with Keycloak and lands back at /oauth2/callback. $escaped_request_uri
     # is the original URL so the user lands where they intended after login.
