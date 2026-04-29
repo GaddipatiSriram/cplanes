@@ -99,31 +99,31 @@ operator, many independently-evolvable backends.
 
 ### Backends (mgmt-observability, Pattern C selector `role=observ`)
 
-| Component | Capability | Dynatrace equivalent | Session |
+| Component | Capability | Dynatrace equivalent | Status |
 |---|---|---|---|
-| `prometheus/` | metrics storage + scraping + operator + CRDs | Infra/APM metrics | **1** |
-| `alertmanager/` | alert routing (Slack/email/PagerDuty/OnCall) | Davis alerting | **1** |
-| `grafana/` | unified UI for everything | Dynatrace UI | **1** |
-| `loki/` | log aggregation, full-text search | Log management | 2 |
-| `tempo/` | distributed traces backend | PurePath / tracing | 2 |
-| `otel-gateway/` | OTLP ingress (traces + metrics + logs) | OneAgent ingest | 2 |
-| `pyroscope/` | continuous profiling | Code-level profiling | 3 |
-| `oncall/` | incident management, on-call rotations | Davis incident routing | 3 |
-| `blackbox-exporter/` | synthetic HTTP/TCP/ICMP probes | Synthetic checks | 2 |
-| `k6-operator/` | scripted load + synthetic monitoring | Synthetic scripted | 3 |
+| `prometheus/` | metrics storage + scraping + operator + CRDs | Infra/APM metrics | ✅ done (Session 1) |
+| `alertmanager/` | alert routing (Slack/email/PagerDuty/OnCall) | Davis alerting | ✅ done (Session 1) — routes are stub `null` receiver, real ones land with credentials |
+| `grafana/` | unified UI for everything | Dynatrace UI | ✅ done (Session 1) — datasources Loki+Tempo+Prometheus+Alertmanager wired; OIDC pending |
+| `loki/` | log aggregation, full-text search | Log management | ✅ done (Session 2) — SingleBinary, ceph-rbd 100Gi |
+| `tempo/` | distributed traces backend | PurePath / tracing | ✅ done (Session 2) — single-binary, ceph-rbd 100Gi |
+| `otel-gateway/` | OTLP ingress (traces + metrics + logs) | OneAgent ingest | ✅ done (Session 2) — gateway only; agents added when needed |
+| `pyroscope/` | continuous profiling | Code-level profiling | not started (Session 3) |
+| `oncall/` | incident management, on-call rotations | Davis incident routing | not started (Session 3) |
+| `blackbox-exporter/` | synthetic HTTP/TCP/ICMP probes | Synthetic checks | not started (Session 2) |
+| `k6-operator/` | scripted load + synthetic monitoring | Synthetic scripted | not started (Session 3) |
 | `mimir/` | HA-scalable Prometheus replacement | (when needed) | future |
 
-### Agents (every workload cluster, Pattern A — `observability-agents/` sibling repo)
+### Agents (every workload cluster, Pattern A — currently in `observability/agents/`)
 
-| Component | Capability | Dynatrace equivalent | Session |
+| Component | Capability | Dynatrace equivalent | Status |
 |---|---|---|---|
-| `node-exporter/` | host metrics (CPU/RAM/disk/net) | OneAgent infra | 2 |
-| `kube-state-metrics/` | k8s object state metrics | OneAgent k8s | 2 |
-| `prometheus-agent/` | local scraper → central remote-write | OneAgent metrics | 2 |
-| `promtail/` | local log shipper → Loki | OneAgent logs | 2 |
-| `otel-collector/` (DaemonSet) | local trace/metric/log collection → OTel gateway | OneAgent traces | 2 |
-| `pyroscope-agent/` | per-pod profiling via eBPF | Code profiling | 3 |
-| `beyla/` | eBPF auto-instrumentation (HTTP/gRPC/SQL spans without code changes) | OneAgent auto-instr | 3 |
+| `node-exporter/` | host metrics (CPU/RAM/disk/net) | OneAgent infra | ✅ done (Session 2) |
+| `kube-state-metrics/` | k8s object state metrics | OneAgent k8s | ✅ done (Session 2) |
+| `prometheus-agent/` | local scraper → central remote-write | OneAgent metrics | ✅ done (Session 2) — also ships prometheus-operator CRDs cluster-wide |
+| `promtail/` | local log shipper → Loki | OneAgent logs | ✅ done (Session 2) |
+| `otel-collector/` (DaemonSet) | local trace/metric/log collection → OTel gateway | OneAgent traces | not started — deferred until a consumer app needs auto-instr |
+| `pyroscope-agent/` | per-pod profiling via eBPF | Code profiling | not started (Session 3) |
+| `beyla/` | eBPF auto-instrumentation (HTTP/gRPC/SQL spans without code changes) | OneAgent auto-instr | not started (Session 3) |
 
 ### Cross-cutting (forge/ + observability-agents/)
 
@@ -212,26 +212,37 @@ Each ApplicationSet:
 | **Rook-Ceph-External** (storage/) | `ceph-rbd` StorageClass for Prometheus/Loki/Tempo PVCs. Must be on mgmt-observability before backends deploy. |
 | **Ingress-nginx** (forge/) | Exposes Grafana UI + Alertmanager webhook receivers. Needs to be on mgmt-observability (Pattern A — broaden cert-manager/ingress-nginx/ESO selectors per `storage/todo.md`). |
 
-## Deployment order (this session + next)
+## Deployment order — Sessions 1 + 2 done; Session 3 next
 
-1. **Register mgmt-observability in argocd-sre** (one-time)
-   — apply `bootstrap-sa.yaml` on mgmt-observability +
-   `cluster-secret.yaml` on OKD argocd-sre ns with labels
-   `tier=mgmt role=observ env=nonprod`.
-2. **Cephx bootstrap** from
-   `storage/rook-ceph-external/generated/mgmt-observ-bundle.yaml`.
-3. **rook-ceph-external ApplicationSet auto-fires** (matches Pattern A
-   selector). CSI + StorageClasses available on mgmt-observability.
-4. **Broaden cert-manager / ingress-nginx / external-secrets
-   selectors** (`storage/todo.md` task) — they auto-install on
-   mgmt-observability too.
-5. **Deploy Prometheus** — Pattern C ApplicationSet; PVC on
-   ceph-rbd; remote-write receiver enabled.
-6. **Deploy Alertmanager** — alongside Prometheus.
-7. **Deploy Grafana** — depends on Prometheus + Alertmanager being
-   Cluster IP services; datasources provisioned via values.yaml.
-8. **Session 2**: Loki, Tempo, OTel gateway; then agents on workload
-   clusters.
+### Session 1 — backends ✅ done
+1. ✅ Register mgmt-observability in argocd-sre (cluster Secret with `tier=mgmt role=observ env=nonprod`).
+2. ✅ Cephx bootstrap from `storage/rook-ceph-external/generated/mgmt-observ-bundle.yaml`.
+3. ✅ rook-ceph-external CSI + StorageClasses on mgmt-observability.
+4. ✅ cert-manager / ingress-nginx / ESO selectors broadened.
+5. ✅ Prometheus (Pattern C, ceph-rbd, remote-write receiver on).
+6. ✅ Alertmanager (3 replicas, ceph-rbd, stub `null` receiver).
+7. ✅ Grafana (ceph-rbd PVC, datasources for Prometheus + Alertmanager).
+
+### Session 2 — logs + metrics + tracing fleet ✅ done
+8. ✅ Loki SingleBinary on observability + Promtail Pattern A on every mgmt cluster.
+9. ✅ Tempo single-binary on observability + OTel gateway (Pattern C).
+10. ✅ Metrics fleet Pattern A: node-exporter + kube-state-metrics on every mgmt cluster + prometheus-agent on every cluster except `role=observ` (which already has the central Prometheus).
+11. ✅ Grafana datasources extended: Loki + Tempo (with trace-to-logs and trace-to-metrics click-through).
+12. ✅ Cert-manager Phase 1: vault-pki ClusterIssuer on every cert-manager cluster, 12 ingress refs migrated from `letsencrypt-prod` → `vault-pki`. All ingresses now serve engatwork.com Root CA-signed certs.
+
+### Session 3 — profiling, synthetic, alerting routes (not started)
+13. Pyroscope (continuous profiling backend) + pyroscope-agent / Beyla (per-pod profiling).
+14. blackbox-exporter (synthetic HTTP/TCP/ICMP probes).
+15. Grafana OnCall (incident management, on-call rotations) — alternative to PagerDuty.
+16. Wire real Alertmanager receivers (Slack, email, PagerDuty webhooks) — needs creds via ESO.
+17. Wire Grafana OIDC to Keycloak `engatwork` realm (now unblocked since Phase 1 cert work — Keycloak ingress has a real cert).
+18. Author per-component dashboards (or import community dashboards as a stopgap).
+
+### Session 4 — security observability + cross-cutting
+19. Falco (runtime security threats, eBPF, Pattern A on every cluster).
+20. Sloth (SLO YAML → PrometheusRules + recording rules).
+21. OpenCost (per-pod cost attribution).
+22. Robusta (alert enrichment + auto-remediation).
 
 ## Reference apps to study
 

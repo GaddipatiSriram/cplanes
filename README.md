@@ -179,8 +179,34 @@ Means the PAT in the Secret is revoked or never matched. Two recoveries:
 - **Secrets in git: never.** Use ESO + Vault for everything app-facing. Repo creds Secrets (`*-secret-*.yaml`) are gitignored.
 - **Homelab passwords** (`unix` / `pfsense`) are demo-only.
 
+## Plane-by-plane status (2026-04-29)
+
+Snapshot of what's running. Each plane's `README.md` and `todo.md` go deeper.
+
+| Plane | Components landed | Notes |
+|---|---|---|
+| **argo-applications** | sre-root App-of-Apps + 57 child Apps across 5 clusters, all Synced/Healthy | Pattern A/B/C selectors documented |
+| **control** | ArgoCD-SRE + ArgoCD-DevOps, argo-workflows, Backstage (demo image, OIDC plugin pending), Crossplane core + provider-keycloak + provider-vault, Homer SSO landing | provider TLS workarounds have Phase 1 done; Phase 2 (CA mount) open |
+| **identity** | Keycloak (engatwork realm, Crossplane-managed clients/groups/scopes) + keycloak-config | Realm has 1 user (admin in both `platform-sre` + `platform-users`) |
+| **security/secrets** | Vault HA (3-node Raft on mgmt-forge) + ESO on every workload cluster + vault-config Crossplane CRs | Vault PKI engine + `engatwork.com Root CA` bootstrapped imperatively |
+| **security/ca-pki** | cert-manager on mgmt-forge, mgmt-control, mgmt-observability + `vault-pki` ClusterIssuer everywhere | Phase 1 cert work done — every ingress now serves engatwork-CA-signed certs |
+| **security/compliance** | Trivy operator on every workload cluster | Falco / OPA / Wazuh not started |
+| **observability** | Prometheus + Alertmanager + Grafana + Loki + Tempo on observability + per-cluster agents (node-exporter, kube-state-metrics, prometheus-agent, promtail) + OTel gateway | Sessions 1+2 done; profiling/synthetic/OnCall pending Session 3. Grafana datasources for Prom + Loki + Tempo wired |
+| **networking** | ingress-nginx + MetalLB on every workload cluster + oauth2-proxy on mgmt-control | Mesh, K8GB, Kong not started |
+| **storage** | Rook-Ceph cluster + operator on mgmt-storage + rook-ceph-external CSI on consumer clusters | Ceph RGW (object) deferred — Loki/Tempo on filesystem PVCs today |
+| **ci-cd** | Jenkins, SonarQube on mgmt-forge | Harbor, GitLab, Tekton, Argo Rollouts, ARC not started |
+| **service** (data) | placeholders only | CloudNativePG, Strimzi, Apicurio, OpenSearch — none deployed |
+| **finops**, **environment** | placeholders only | Kubecost, Kube-Green, Kepler — not started |
+
+### Cross-cutting initiatives
+
+- **TLS workaround cleanup (SESSION-NOTES "Outstanding TLS workarounds")** — Phase 1 done (cert-manager flow), Phase 2 open (4 consumer pods need engatwork CA mounted). Tracked in `identity/todo.md`, `control/todo.md`, `observability/todo.md`.
+- **L1 consumer-service learning exercise (`argo-applications/todo.md`)** — build one tiny app that exercises every layer (OIDC, ESO, vault-pki cert, Loki logs, Prom metrics). Highest-leverage next step for closing the foundations gap captured in `/root/learning/LEARNING-NOTES.md`.
+
 ## Quick links
 
 - AppSet patterns + service catalog: [`argo-applications/README.md`](./argo-applications/README.md)
 - AWS-recommended EKS patterns (contrast doc): [`docs/aws/eks-bootstrap-argo.md`](./docs/aws/eks-bootstrap-argo.md)
+- Session handoff (above-the-line current state): [`/root/learning/SESSION-NOTES.md`](../SESSION-NOTES.md)
+- Foundations curriculum: [`/root/learning/LEARNING-NOTES.md`](../LEARNING-NOTES.md)
 - Original "Think in Planes" article: <https://itnext.io/building-a-kubernetes-platform-think-big-think-in-planes-ede8bcba295f>
