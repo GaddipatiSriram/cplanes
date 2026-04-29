@@ -70,8 +70,6 @@ sonarqube:
         storageClass: ceph-rbd
         size: 20Gi
 
-  # SonarQube wants vm.max_map_count high enough for ES; the chart's
-  # init container handles it.
-  initContainers:
-    sysctl:
-      enabled: true
+  # SonarQube wants vm.max_map_count high enough for ES — bitnami chart
+  # handles the sysctl init container automatically when running as
+  # non-root and ES is bundled. No values knob needed.
