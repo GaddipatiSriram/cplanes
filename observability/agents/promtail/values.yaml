@@ -54,6 +54,14 @@ promtail:
         # `promtail.cluster` to.  See top of file for context.
         external_labels:
           cluster: "{{ .Values.cluster }}"
+        # TODO: drop once cert-manager letsencrypt-prod ClusterIssuer
+        # produces a real cert for loki.apps.mgmt-observability.
+        # Today the ingress presents the default `ingress.local` cert
+        # — same root cause as the three TLS workarounds tracked in
+        # SESSION-NOTES (Keycloak ingress).  All of them fall together
+        # once the homelab cert-manager flow is fixed.
+        tls_config:
+          insecure_skip_verify: true
         # Backoff policy — bound retries so a temporarily-unreachable
         # Loki doesn't blow Promtail's memory queueing pushes.
         backoff_config:
