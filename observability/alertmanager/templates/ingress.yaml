@@ -17,7 +17,7 @@ metadata:
   labels:
     app.kubernetes.io/part-of: observability
   annotations:
-    cert-manager.io/cluster-issuer: letsencrypt-prod
+    cert-manager.io/cluster-issuer: vault-pki
 spec:
   ingressClassName: {{ .Values.alertmanager.ingress.className | default "nginx" | quote }}
   rules:

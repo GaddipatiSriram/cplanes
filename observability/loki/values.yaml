@@ -138,7 +138,7 @@ ingress:
   className: nginx
   host: loki.apps.mgmt-observability.engatwork.com
   annotations:
-    cert-manager.io/cluster-issuer: letsencrypt-prod
+    cert-manager.io/cluster-issuer: vault-pki
     # Promtail batches large pushes; default body size limits 413 fast.
     nginx.ingress.kubernetes.io/proxy-body-size: "16m"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "120"

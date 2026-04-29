@@ -68,7 +68,7 @@ sonarqube:
           - sonarqube.apps.mgmt-forge.engatwork.com
         secretName: sonarqube-tls
     annotations:
-      cert-manager.io/cluster-issuer: letsencrypt-prod
+      cert-manager.io/cluster-issuer: vault-pki
 
   service:
     type: ClusterIP

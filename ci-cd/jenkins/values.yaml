@@ -23,7 +23,7 @@ jenkins:
       ingressClassName: nginx
       hostName: jenkins.apps.mgmt-control.engatwork.com
       annotations:
-        cert-manager.io/cluster-issuer: letsencrypt-prod
+        cert-manager.io/cluster-issuer: vault-pki
       tls:
         - hosts:
             - jenkins.apps.mgmt-control.engatwork.com

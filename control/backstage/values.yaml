@@ -63,7 +63,7 @@ backstage:
     enabled: true
     className: nginx
     annotations:
-      cert-manager.io/cluster-issuer: letsencrypt-prod
+      cert-manager.io/cluster-issuer: vault-pki
     host: backstage.apps.mgmt-control.engatwork.com
     tls:
       enabled: true

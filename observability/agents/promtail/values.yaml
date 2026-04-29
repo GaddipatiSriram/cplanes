@@ -54,12 +54,12 @@ promtail:
         # `promtail.cluster` to.  See top of file for context.
         external_labels:
           cluster: "{{ .Values.cluster }}"
-        # TODO: drop once cert-manager letsencrypt-prod ClusterIssuer
-        # produces a real cert for loki.apps.mgmt-observability.
-        # Today the ingress presents the default `ingress.local` cert
-        # — same root cause as the three TLS workarounds tracked in
-        # SESSION-NOTES (Keycloak ingress).  All of them fall together
-        # once the homelab cert-manager flow is fixed.
+        # TODO: drop once Promtail trusts the engatwork.com Root CA.
+        # The Loki ingress now serves a vault-pki cert (signed by
+        # engatwork CA) — but Promtail's container has only the public
+        # trust roots, not engatwork CA.  Phase 2 of the cert-manager
+        # work mounts the CA bundle into Promtail and drops this skip.
+        # See SESSION-NOTES "Outstanding TLS workarounds".
         tls_config:
           insecure_skip_verify: true
         # Backoff policy — bound retries so a temporarily-unreachable

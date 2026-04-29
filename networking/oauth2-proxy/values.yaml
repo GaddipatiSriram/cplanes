@@ -81,7 +81,7 @@ ingress:
   className: nginx
   host: home.apps.mgmt-control.engatwork.com
   annotations:
-    cert-manager.io/cluster-issuer: letsencrypt-prod
+    cert-manager.io/cluster-issuer: vault-pki
   tls:
     enabled: true
     secretName: home-tls

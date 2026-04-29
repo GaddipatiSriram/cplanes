@@ -1,0 +1,50 @@
+{{- /*
+ClusterIssuer that signs ingress certs via Vault's PKI engine.
+
+This template renders on EVERY cluster the cert-manager AppSet matches
+(mgmt-forge, mgmt-control, mgmt-observability today). Each cluster's
+instance points at the SAME Vault (vault.apps.mgmt-forge.engatwork.com)
+through ingress-nginx — so mgmt-forge does take a one-hop detour
+through its own ingress, in exchange for one consistent code path.
+
+Per-cluster identity:
+  - kubernetesAuthMount = `kubernetes-<cluster-name>` — set by the
+    cert-manager AppSet's `helm.parameters` so each cluster authenticates
+    against ITS OWN Vault auth mount (Vault validates the JWT against the
+    matching cluster's apiserver, not the central one).
+
+Vault-side prerequisites (managed declaratively by Crossplane in
+cplanes/security/secrets/vault-config/values.yaml):
+  - Policy `cert-manager-issuer` with `path "pki/sign/platform-ingress"
+    { capabilities = ["update"] }`.
+  - AuthBackendRole `cert-manager-issuer` on each cluster's
+    `kubernetes-<name>` mount, bound to the cert-manager SA in the
+    cert-manager namespace.
+  - PKI engine + `platform-ingress` cert role: bootstrapped imperatively
+    once at the start of the homelab's life — see vault chart README.
+
+caBundle: the engatwork.com Root CA cert (committed to git — CA certs
+aren't secrets). Same value as
+cplanes/security/secrets/external-secrets/values.yaml `vault.caBundle`;
+both update together when the root rotates.
+*/}}
+{{- if .Values.vaultPki.enabled }}
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: {{ .Values.vaultPki.name | default "vault-pki" }}
+  labels:
+    app.kubernetes.io/name: vault-pki
+    app.kubernetes.io/part-of: platform
+spec:
+  vault:
+    server: {{ .Values.vaultPki.server | quote }}
+    path: {{ .Values.vaultPki.signPath | quote }}
+    caBundle: {{ .Values.vaultPki.caBundle | b64enc | quote }}
+    auth:
+      kubernetes:
+        role: {{ .Values.vaultPki.kubernetesAuthRole | quote }}
+        mountPath: {{ printf "/v1/auth/%s" .Values.vaultPki.kubernetesAuthMount | quote }}
+        serviceAccountRef:
+          name: {{ .Values.vaultPki.serviceAccountName | quote }}
+{{- end }}

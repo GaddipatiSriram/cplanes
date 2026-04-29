@@ -44,6 +44,14 @@ spec:
         path: security/ca-pki/cert-manager
         helm:
           releaseName: cert-manager
+          # Per-cluster Vault auth mount for the vault-pki ClusterIssuer.
+          # Each cluster authenticates against its own kubernetes-<name>
+          # mount (Phase 8 of cluster bootstrap creates one mount per
+          # cluster against that cluster's apiserver).  Default in
+          # values.yaml is for direct/standalone testing on mgmt-forge.
+          parameters:
+            - name: vaultPki.kubernetesAuthMount
+              value: 'kubernetes-{{name}}'
       destination:
         server: '{{server}}'
         namespace: cert-manager
