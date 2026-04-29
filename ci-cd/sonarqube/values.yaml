@@ -13,11 +13,12 @@
 #     comes later via the SonarQube OAuth/SAML plugin).
 
 sonarqube:
-  # SonarQube image
+  # SonarQube image — bitnami pulled named tags off docker.io/bitnami in
+  # Aug 2025; current free images live under docker.io/bitnamilegacy.
   image:
     registry: docker.io
-    repository: bitnami/sonarqube
-    tag: 25.8.0-debian-12-r0
+    repository: bitnamilegacy/sonarqube
+    tag: 25.8.0-debian-12-r2
     pullPolicy: IfNotPresent
 
   # Resources — bump after first soak.
@@ -52,6 +53,13 @@ sonarqube:
   # Bundled PostgreSQL.
   postgresql:
     enabled: true
+    # Same docker.io → bitnamilegacy migration as SonarQube image above.
+    # The bitnami sonarqube chart pins an OLD postgres tag that no longer
+    # exists on docker.io/bitnami; force the current legacy tag.
+    image:
+      registry: docker.io
+      repository: bitnamilegacy/postgresql
+      tag: 17.6.0-debian-12-r4
     auth:
       username: bn_sonarqube
       password: sonarPass         # rotate via Vault/ESO when forge/todo C5 lands
