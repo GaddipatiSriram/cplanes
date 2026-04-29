@@ -41,6 +41,15 @@ spec:
       destination:
         server: '{{.server}}'
         namespace: crossplane-system
+      # ESO admission injects defaults on PushSecret (conversionStrategy etc.
+      # on data; templating fields) that aren't in the chart source —
+      # suppress to keep the App Synced.
+      ignoreDifferences:
+        - group: external-secrets.io
+          kind: PushSecret
+          jsonPointers:
+            - /spec/data
+            - /spec/template
       syncPolicy:
         automated:
           selfHeal: true
@@ -49,6 +58,7 @@ spec:
           - CreateNamespace=false
           - ServerSideApply=true
           - SkipDryRunOnMissingResource=true
+          - RespectIgnoreDifferences=true
         retry:
           limit: 10
           backoff:

@@ -36,6 +36,16 @@ spec:
       destination:
         server: '{{.server}}'
         namespace: crossplane-system
+      # ESO admission injects defaults (conversionStrategy/decodingStrategy/
+      # metadataPolicy on data; engineVersion/mergePolicy on target.template)
+      # that aren't in the chart source — suppress to keep the App Synced.
+      ignoreDifferences:
+        - group: external-secrets.io
+          kind: ExternalSecret
+          jsonPointers:
+            - /spec/data
+            - /spec/target/template/engineVersion
+            - /spec/target/template/mergePolicy
       syncPolicy:
         automated:
           selfHeal: true
@@ -44,6 +54,7 @@ spec:
           - CreateNamespace=false
           - ServerSideApply=true
           - SkipDryRunOnMissingResource=true
+          - RespectIgnoreDifferences=true
         retry:
           limit: 10
           backoff:

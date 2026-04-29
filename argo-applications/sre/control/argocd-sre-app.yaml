@@ -41,6 +41,9 @@ spec:
   # ArgoCD's argocd-cm ConfigMap gets webhook secrets and SSO config
   # patched in-cluster; argocd-secret has plaintext fields populated by
   # the controller. Both should be ignored to avoid sync churn.
+  # ESO admission injects defaults (conversionStrategy/decodingStrategy/
+  # metadataPolicy on data; engineVersion/mergePolicy on target.template)
+  # that aren't in the chart source — suppress to keep the App Synced.
   ignoreDifferences:
     - group: ""
       kind: Secret
@@ -52,6 +55,12 @@ spec:
       name: argocd-sre-application-controller
       jsonPointers:
         - /spec/volumeClaimTemplates
+    - group: external-secrets.io
+      kind: ExternalSecret
+      jsonPointers:
+        - /spec/data
+        - /spec/target/template/engineVersion
+        - /spec/target/template/mergePolicy
   syncPolicy:
     automated:
       selfHeal: true
