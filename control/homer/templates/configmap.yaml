@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: homer-config
+  labels:
+    app.kubernetes.io/name: homer
+    app.kubernetes.io/part-of: platform
+data:
+  config.yml: |
+{{ toYaml .Values.config | indent 4 }}

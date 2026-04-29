@@ -1,0 +1,95 @@
+# Values for the mgmt-control oauth2-proxy umbrella chart.
+# Subchart name `oauth2-proxy` must match Chart.yaml dependency.
+#
+# Architecture:
+#   - oauth2-proxy validates user sessions against Keycloak's `engatwork`
+#     realm via the `apps-launcher` OIDC client.
+#   - Sits behind ingress-nginx; Homer's ingress uses auth-url subrequest
+#     annotations to delegate auth to this proxy.
+#   - All three secrets (client_id, client_secret, cookie_secret) come from
+#     ESO via templates/oidc-externalsecret.yaml.
+#
+# Two ingress paths share host home.apps.mgmt-control.engatwork.com:
+#   /oauth2/*  → this oauth2-proxy (login + callback + auth subrequest)
+#   /*         → Homer (gated by auth-url subrequest pointing at /oauth2/auth)
+
+oauth2-proxy:
+  replicaCount: 1
+
+  image:
+    repository: quay.io/oauth2-proxy/oauth2-proxy
+    tag: v7.7.1
+
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+  # Pull all three secrets from a single Secret/oauth2-proxy-oidc rendered by
+  # templates/oidc-externalsecret.yaml. Keys must match the chart's expected
+  # names: client-id, client-secret, cookie-secret.
+  config:
+    existingSecret: oauth2-proxy-oidc
+
+  extraArgs:
+    provider: oidc
+    provider-display-name: "engatwork SSO"
+    oidc-issuer-url: "https://keycloak.apps.mgmt-forge.engatwork.com/auth/realms/engatwork"
+    redirect-url: "https://home.apps.mgmt-control.engatwork.com/oauth2/callback"
+    # Allow any email — the realm itself gates who can log in. We're not using
+    # email-domain filtering as a second layer.
+    email-domain: "*"
+    # Behind ingress-nginx — trust X-Forwarded-* and use the real scheme.
+    reverse-proxy: "true"
+    # We use the auth subrequest pattern, so we need /oauth2/auth to return
+    # 202 (accepted) for upstream consumption.
+    set-xauthrequest: "true"
+    pass-access-token: "true"
+    pass-authorization-header: "true"
+    # Path prefix matches the Ingress path below.
+    proxy-prefix: "/oauth2"
+    # Session cookie domain — restrict to the launcher host.
+    cookie-domain: "home.apps.mgmt-control.engatwork.com"
+    cookie-secure: "true"
+    # Skip Keycloak's auto-discovery for non-issuer fields where it differs
+    # from spec (Keycloak emits standard OIDC discovery, so usually fine).
+    skip-provider-button: "false"
+    # Map Keycloak's preferred_username to the oauth2-proxy "user" header
+    # downstream consumers can read.
+    user-id-claim: "preferred_username"
+
+  service:
+    type: ClusterIP
+    portNumber: 80
+
+  ingress:
+    enabled: true
+    className: nginx
+    hostname: home.apps.mgmt-control.engatwork.com
+    path: /oauth2
+    pathType: Prefix
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+    tls: true
+    extraTls:
+      - hosts:
+          - home.apps.mgmt-control.engatwork.com
+        secretName: home-tls
+
+  serviceAccount:
+    enabled: true
+    name: oauth2-proxy
+
+# Umbrella-chart toggles (not passed to subchart).
+# ESO references — see templates/oidc-externalsecret.yaml.
+externalSecret:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: vault-forge
+    kind: ClusterSecretStore
+  vaultPaths:
+    client: "forge/keycloak/clients/apps-launcher"
+    cookie: "forge/oauth2-proxy/cookie-secret"

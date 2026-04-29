@@ -1,0 +1,58 @@
+# ApplicationSet — oauth2-proxy on every role=control cluster (mgmt-control).
+# Gates the SSO launcher (Homer) at home.apps.mgmt-control.engatwork.com.
+#
+# Prerequisites (Synced+Healthy first):
+#   - cert-manager
+#   - ingress-nginx
+#   - external-secrets        (ClusterSecretStore vault-forge available)
+#   - keycloak                (engatwork realm imported, secret-sync Job
+#                              has populated kv/forge/keycloak/clients/...
+#                              and kv/forge/oauth2-proxy/cookie-secret)
+#
+# Discovery: picked up by the sre-root App-of-Apps (sre-root-app.yaml) — no
+# kubectl apply needed once the root is bootstrapped.
+
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: oauth2-proxy
+  namespace: argocd-sre
+spec:
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            role: control
+  template:
+    metadata:
+      name: 'oauth2-proxy-{{name}}'
+      labels:
+        app.kubernetes.io/name: oauth2-proxy
+        app.kubernetes.io/part-of: platform
+      annotations:
+        argocd.argoproj.io/sync-wave: "3"
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/GaddipatiSriram/cplanes.git
+        targetRevision: HEAD
+        path: networking/oauth2-proxy
+        helm:
+          releaseName: oauth2-proxy
+      destination:
+        server: '{{server}}'
+        namespace: oauth2-proxy
+      syncPolicy:
+        automated:
+          selfHeal: true
+          prune: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+          - SkipDryRunOnMissingResource=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 10s
+            factor: 2
+            maxDuration: 3m

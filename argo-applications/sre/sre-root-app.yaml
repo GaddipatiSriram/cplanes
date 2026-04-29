@@ -1,0 +1,63 @@
+# Root App-of-Apps — argocd-sre's umbrella over every AppSet/App in this tree.
+#
+# Why this exists:
+#   Without a root, each new AppSet (oauth2-proxy-appset.yaml, homer-appset.yaml,
+#   etc.) needs a one-time `kubectl apply` to register it with argocd-sre.
+#   With this root, argocd-sre recursively scans argo-applications/sre/, treats
+#   every *-appset.yaml / *-app.yaml as a managed child, and reconciles them as
+#   regular GitOps content. Drop a new AppSet into the tree, push to git, done.
+#
+# One-time bootstrap (the LAST kubectl apply you should ever need on this dir):
+#
+#   kubectl --context admin apply -f argo-applications/sre/sre-root-app.yaml
+#
+# After that, additions/edits/removals propagate via git → ArgoCD.
+#
+# Self-management note:
+#   This file lives inside the directory it manages. ArgoCD handles the
+#   self-reference (the root reconciles itself as a managed resource). Pruning
+#   is DISABLED so a misrender on the root can't delete itself or its children.
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sre-root
+  namespace: argocd-sre
+  labels:
+    app.kubernetes.io/name: sre-root
+    app.kubernetes.io/part-of: platform
+  annotations:
+    # Earlier than argocd-sre-app's -10 so the root claims management before
+    # individual app/appset waves run.
+    argocd.argoproj.io/sync-wave: "-20"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/GaddipatiSriram/cplanes.git
+    targetRevision: HEAD
+    path: argo-applications/sre
+    directory:
+      recurse: true
+      include: "{**/*-appset.yaml,**/*-app.yaml}"
+      # Excludes prevent accidental management of:
+      #   - this root file (would re-create itself in a loop on prune)
+      #   - any future README/docs files that match the glob
+      exclude: "{sre-root-app.yaml,**/README*}"
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd-sre
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: false   # never auto-prune AppSets — pruning is manual, deliberate
+    syncOptions:
+      - CreateNamespace=false
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m

@@ -1,0 +1,56 @@
+# ApplicationSet — Homer SSO launcher on every role=control cluster
+# (mgmt-control). Front page at home.apps.mgmt-control.engatwork.com.
+#
+# Prerequisites (Synced+Healthy first):
+#   - cert-manager
+#   - ingress-nginx
+#   - oauth2-proxy   (auth subrequest target — Homer's ingress fails
+#                     auth-url subrequest until oauth2-proxy is up)
+#
+# Discovery: picked up by the sre-root App-of-Apps (sre-root-app.yaml) — no
+# kubectl apply needed once the root is bootstrapped.
+
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: homer
+  namespace: argocd-sre
+spec:
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            role: control
+  template:
+    metadata:
+      name: 'homer-{{name}}'
+      labels:
+        app.kubernetes.io/name: homer
+        app.kubernetes.io/part-of: platform
+      annotations:
+        argocd.argoproj.io/sync-wave: "4"
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/GaddipatiSriram/cplanes.git
+        targetRevision: HEAD
+        path: control/homer
+        helm:
+          releaseName: homer
+      destination:
+        server: '{{server}}'
+        namespace: homer
+      syncPolicy:
+        automated:
+          selfHeal: true
+          prune: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+          - SkipDryRunOnMissingResource=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 10s
+            factor: 2
+            maxDuration: 3m

@@ -1,0 +1,15 @@
+apiVersion: v2
+name: oauth2-proxy
+description: |
+  Umbrella chart wrapping the upstream oauth2-proxy/oauth2-proxy chart with
+  the OIDC config that gates the engatwork SSO launcher (Homer). Lives on
+  mgmt-control. Talks to the `apps-launcher` client in the `engatwork`
+  realm at keycloak.apps.mgmt-forge.engatwork.com.
+type: application
+version: 0.1.0
+appVersion: "7.7.1"
+
+dependencies:
+  - name: oauth2-proxy
+    version: "7.7.21"
+    repository: https://oauth2-proxy.github.io/manifests

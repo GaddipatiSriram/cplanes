@@ -1,0 +1,11 @@
+apiVersion: v2
+name: homer
+description: |
+  Homer — static landing page rendering the engatwork service directory.
+  Sits behind oauth2-proxy on mgmt-control: visitors hit
+  home.apps.mgmt-control.engatwork.com, ingress-nginx auth-subrequests to
+  oauth2-proxy, oauth2-proxy validates Keycloak session, then Homer renders.
+  Single ConfigMap holds config.yml. No DB, no backend.
+type: application
+version: 0.1.0
+appVersion: "v25.10.1"

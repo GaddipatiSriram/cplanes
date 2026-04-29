@@ -13,6 +13,30 @@
 #   - Ingress at backstage.apps.mgmt-control.engatwork.com via ingress-nginx
 #     + cert-manager. Login via Keycloak OIDC once the auth-* plugin
 #     is configured in the custom image.
+#
+# === OIDC roadmap (custom image required to activate) ========================
+# Secret/backstage-oidc is already populated via templates/oidc-externalsecret.yaml
+# from kv/forge/keycloak/clients/backstage. Keys: AUTH_OIDC_CLIENT_ID,
+# AUTH_OIDC_CLIENT_SECRET. The demo image does not bundle the OIDC plugin, so
+# wiring those env vars now is decorative — Backstage ignores them.
+#
+# To activate (custom image work, separate session/repo):
+#   1. yarn add @backstage/plugin-auth-backend-module-oidc-provider in your
+#      Backstage app source (sibling repo backstage-app/).
+#   2. Register the provider in packages/backend/src/index.ts.
+#   3. In app-config.production.yaml:
+#        auth:
+#          providers:
+#            oidc:
+#              production:
+#                metadataUrl: https://keycloak.apps.mgmt-forge.engatwork.com/auth/realms/engatwork/.well-known/openid-configuration
+#                clientId: ${AUTH_OIDC_CLIENT_ID}
+#                clientSecret: ${AUTH_OIDC_CLIENT_SECRET}
+#                prompt: auto
+#   4. Build + push the image, point this chart's image.tag at the new tag, and
+#      uncomment the extraEnvVarsSecrets reference below so the pod gets the
+#      AUTH_OIDC_* env vars from the Secret.
+# =============================================================================
 
 backstage:
   backstage:
@@ -50,3 +74,9 @@ backstage:
   # ephemeral, fine for kicking the tires.
   postgresql:
     enabled: false
+
+  # OIDC env-vars from the ExternalSecret-managed Secret. Uncomment when the
+  # custom image with @backstage/plugin-auth-backend-module-oidc-provider
+  # is in place and app-config references ${AUTH_OIDC_CLIENT_ID/SECRET}.
+  # extraEnvVarsSecrets:
+  #   - backstage-oidc

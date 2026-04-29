@@ -1,0 +1,151 @@
+# Homer SSO landing page — gated by oauth2-proxy via nginx auth-url subrequest.
+#
+# Both this chart and oauth2-proxy share host home.apps.mgmt-control.engatwork.com.
+#   /oauth2/* → oauth2-proxy ingress (in cplanes/networking/oauth2-proxy)
+#   /*        → this Homer ingress, with auth-url annotations forcing nginx
+#               to subrequest oauth2-proxy's /oauth2/auth before serving any
+#               request.
+#
+# Updating tiles:
+#   - Edit `config.services` below. ArgoCD reconciles within ~3 min;
+#     deployment auto-rolls thanks to checksum/config annotation.
+
+image:
+  repository: b4bz/homer
+  tag: "v25.10.1"
+  pullPolicy: IfNotPresent
+
+replicas: 1
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi
+
+service:
+  type: ClusterIP
+  port: 8080
+
+ingress:
+  enabled: true
+  className: nginx
+  host: home.apps.mgmt-control.engatwork.com
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    # Auth subrequest — every request is forwarded to oauth2-proxy at
+    # /oauth2/auth. 202 means "let it through"; 401 means "not authenticated".
+    nginx.ingress.kubernetes.io/auth-url: "https://home.apps.mgmt-control.engatwork.com/oauth2/auth"
+    # On 401, redirect the browser to /oauth2/start, which begins the OIDC
+    # dance with Keycloak and lands back at /oauth2/callback. $escaped_request_uri
+    # is the original URL so the user lands where they intended after login.
+    nginx.ingress.kubernetes.io/auth-signin: "https://home.apps.mgmt-control.engatwork.com/oauth2/start?rd=$escaped_request_uri"
+    # Forward identity headers downstream so Homer (or any future replacement)
+    # can read the authenticated user.
+    nginx.ingress.kubernetes.io/auth-response-headers: "X-Auth-Request-User, X-Auth-Request-Email"
+  tls:
+    enabled: true
+    secretName: home-tls
+
+# ---------------------------------------------------------------------------
+# Homer config.yml — referenced by templates/configmap.yaml.
+# Reference: https://github.com/bastienwirtz/homer/blob/main/docs/configuration.md
+# ---------------------------------------------------------------------------
+config:
+  title: "engatwork homelab"
+  subtitle: "Platform service directory"
+  logo: ""
+  header: true
+  footer: false
+
+  defaults:
+    layout: columns
+    colorTheme: auto
+
+  services:
+    - name: "Control plane (mgmt-control)"
+      icon: "fas fa-tachometer-alt"
+      items:
+        - name: "ArgoCD — SRE"
+          subtitle: "Reconciles platform services across all clusters"
+          tag: "gitops"
+          url: "https://argocd-sre.apps.mgmt-control.engatwork.com"
+          target: "_blank"
+        - name: "ArgoCD — DevOps"
+          subtitle: "Reconciles application workloads"
+          tag: "gitops"
+          url: "https://argocd-devops.apps.mgmt-control.engatwork.com"
+          target: "_blank"
+        - name: "Argo Workflows"
+          subtitle: "DAG / pipeline orchestration"
+          tag: "workflows"
+          url: "https://workflows.apps.mgmt-control.engatwork.com"
+          target: "_blank"
+        - name: "Backstage"
+          subtitle: "Developer / SRE catalog"
+          tag: "portal"
+          url: "https://backstage.apps.mgmt-control.engatwork.com"
+          target: "_blank"
+        - name: "Jenkins"
+          subtitle: "Build automation"
+          tag: "ci"
+          url: "https://jenkins.apps.mgmt-control.engatwork.com"
+          target: "_blank"
+
+    - name: "Observability (mgmt-observability)"
+      icon: "fas fa-chart-line"
+      items:
+        - name: "Grafana"
+          subtitle: "Dashboards (metrics + logs + traces)"
+          tag: "viz"
+          url: "https://grafana.apps.mgmt-observability.engatwork.com"
+          target: "_blank"
+        - name: "Prometheus"
+          subtitle: "Metrics scraping + TSDB"
+          tag: "metrics"
+          url: "https://prometheus.apps.mgmt-observability.engatwork.com"
+          target: "_blank"
+        - name: "Alertmanager"
+          subtitle: "Alert routing + silencing"
+          tag: "alerts"
+          url: "https://alertmanager.apps.mgmt-observability.engatwork.com"
+          target: "_blank"
+
+    - name: "Identity & Secrets (mgmt-forge)"
+      icon: "fas fa-key"
+      items:
+        - name: "Keycloak"
+          subtitle: "OIDC / IAM (engatwork realm)"
+          tag: "auth"
+          url: "https://keycloak.apps.mgmt-forge.engatwork.com"
+          target: "_blank"
+        - name: "Vault"
+          subtitle: "Secrets store + PKI engine"
+          tag: "secrets"
+          url: "https://vault.apps.mgmt-forge.engatwork.com"
+          target: "_blank"
+
+    - name: "CI / CD (mgmt-forge)"
+      icon: "fas fa-code-branch"
+      items:
+        - name: "SonarQube"
+          subtitle: "Static analysis + code quality"
+          tag: "scan"
+          url: "https://sonarqube.apps.mgmt-forge.engatwork.com"
+          target: "_blank"
+
+    - name: "Infrastructure"
+      icon: "fas fa-server"
+      items:
+        - name: "pfSense"
+          subtitle: "Edge firewall + HAProxy (10.10.0.0/16)"
+          tag: "net"
+          url: "https://pfsense.engatwork.com"
+          target: "_blank"
+        - name: "oVirt Engine"
+          subtitle: "Hypervisor manager (Hosted Engine)"
+          tag: "virt"
+          url: "https://ovirt.engatwork.com"
+          target: "_blank"
