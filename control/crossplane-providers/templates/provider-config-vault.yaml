@@ -27,6 +27,11 @@ metadata:
     argocd.argoproj.io/sync-options: SkipDryRunOnMissingResource=true
 spec:
   address: {{ .Values.providerConfig.vault.address | quote }}
+  # TODO: replace with proper CA bundle once provider-vault's ProviderConfig
+  # supports it (or via DeploymentRuntimeConfig mounting the engatwork Root
+  # CA into the provider pod). For now, the homelab Vault is signed by the
+  # internal engatwork CA which the provider doesn't trust by default.
+  skip_tls_verify: true
   credentials:
     source: Secret
     secretRef:
