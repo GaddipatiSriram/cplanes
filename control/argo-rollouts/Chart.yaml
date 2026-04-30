@@ -1,0 +1,31 @@
+apiVersion: v2
+name: argo-rollouts
+description: |
+  Argo Rollouts — progressive delivery (canary, blue-green) for Kubernetes
+  Deployments.  Drop-in extension to ArgoCD that adds a `Rollout` CR which
+  orchestrates traffic shifting + analysis-driven promotion.
+
+  Why this chart exists in our stack:
+    - **CAPA cert prep** — the Argo Project Associate exam covers Rollouts
+      alongside ArgoCD/Workflows/Events.  Hands-on time on this controller
+      is required.
+    - **Production-shape deploys** — converting a Deployment to a Rollout
+      gives canary-with-analysis (Prometheus-driven) for safer rollouts.
+    - **CNPE / SRE prep** — the canonical "progressive delivery" pattern
+      every modern platform engineer is expected to know.
+
+  Pattern: deployed only on role=control (mgmt-control) — that's where
+  ArgoCD lives, and Rollouts is operationally adjacent.  Apps that want
+  Rollout-based deploys must run on a cluster where the controller is
+  installed.  When other clusters need it, broaden the AppSet selector.
+
+  Pinned to argo-rollouts 2.40.9 (app v1.9.0).
+
+type: application
+version: 0.1.0
+appVersion: "v1.9.0"
+
+dependencies:
+  - name: argo-rollouts
+    version: 2.40.9
+    repository: https://argoproj.github.io/argo-helm

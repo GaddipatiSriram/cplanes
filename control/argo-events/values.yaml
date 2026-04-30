@@ -1,0 +1,39 @@
+# argo-events umbrella values.
+
+argo-events:
+  # The chart's controllerManager owns: EventBus, EventSource, Sensor controllers.
+  controller:
+    replicas: 1   # single instance for homelab
+    resources:
+      requests:
+        cpu: 25m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+
+    metrics:
+      enabled: true
+      serviceMonitor:
+        enabled: true
+        additionalLabels:
+          app.kubernetes.io/part-of: control-plane
+
+  # CRDs bundled — install them.
+  crds:
+    install: true
+    keep: true
+
+  # No EventBus deployed by the chart; we author one explicitly when first needed
+  # (a Sensor resource or template needs an EventBus to function).  See
+  # cert-prep guide for sample.
+
+  # configs section exists; defaults are fine for homelab.
+  configs:
+    jetstream:
+      versions:
+        - version: latest
+          natsImage: nats:2.10-alpine
+          metricsExporterImage: natsio/prometheus-nats-exporter:0.14.0
+          configReloaderImage: natsio/nats-server-config-reloader:0.14.1
+          startCommand: /nats-server

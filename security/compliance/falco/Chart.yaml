@@ -1,0 +1,32 @@
+apiVersion: v2
+name: falco
+description: |
+  Falco — runtime security threat detection.  CNCF graduated.  eBPF-based
+  syscall monitoring; alerts on suspicious behavior (`cat /etc/shadow`,
+  unexpected `execve`, container escape attempts) defined in Falco rule
+  language.
+
+  Why this chart exists in our stack:
+    - **CKS cert** explicitly tests Falco rule authoring.
+    - **Security Platform Engineer role** baseline.
+    - **Edge/Gateway role** (the JD) overlaps with security observability.
+
+  Pattern: Pattern A DaemonSet on every workload cluster (`tier=mgmt`).
+  Falco runs eBPF probes on every node, watches every container's
+  syscalls.
+
+  Driver: **modern eBPF** (CO-RE — Compile Once Run Everywhere).  No
+  kernel module compile required; works on most modern kernels (5.8+).
+  Fallback to `kmod` if the kernel doesn't support eBPF (rare on modern
+  distributions).
+
+  Pinned to falco 8.0.2 (app 0.43.1).
+
+type: application
+version: 0.1.0
+appVersion: "0.43.1"
+
+dependencies:
+  - name: falco
+    version: 8.0.2
+    repository: https://falcosecurity.github.io/charts

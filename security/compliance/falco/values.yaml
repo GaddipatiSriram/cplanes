@@ -1,0 +1,73 @@
+# falco umbrella values.
+
+falco:
+  # Modern eBPF driver — Compile Once Run Everywhere.  Falls back to legacy
+  # kmod compile if not supported.
+  driver:
+    enabled: true
+    kind: modern_ebpf
+
+  # Tolerate every taint — runtime-security on EVERY node, including
+  # control-plane.
+  tolerations:
+    - effect: NoSchedule
+      operator: Exists
+    - effect: NoExecute
+      operator: Exists
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1
+      memory: 1Gi
+
+  # Default ruleset — Falco ships a comprehensive default set + the
+  # Falco Sandbox + the Falco Incubating rules.  Start with default;
+  # add custom rules in customRules block below.
+  falco:
+    rules_files:
+      - /etc/falco/falco_rules.yaml
+      - /etc/falco/falco_rules.local.yaml
+      - /etc/falco/k8s_audit_rules.yaml
+      - /etc/falco/rules.d
+
+    json_output: true     # structured logs play well with Loki
+    json_include_output_property: true
+    log_level: info
+
+    # Output destination — stdout (Promtail picks up) by default.  In
+    # production: also forward to Wazuh / OpenSearch / SIEM via syslog
+    # output channel.
+    stdout_output:
+      enabled: true
+    syslog_output:
+      enabled: false
+
+    # http_output for sending JSON to falcosidekick (when added later)
+    http_output:
+      enabled: false
+
+  customRules: {}
+    # Add custom rules here (key = filename, value = rule YAML string)
+    # Example:
+    # custom-rules.yaml: |-
+    #   - rule: Read sensitive file untrusted
+    #     desc: An attempt to read sensitive files
+    #     condition: open_read and sensitive_files and not user_known_read_sensitive_files
+    #     output: Sensitive file opened for reading by non-trusted program
+    #     priority: WARNING
+
+  # Falco metrics endpoint
+  metrics:
+    enabled: true
+  serviceMonitor:
+    create: true
+    additionalLabels:
+      app.kubernetes.io/part-of: security-compliance
+
+  # FalcoSidekick — alert forwarding (Slack, PagerDuty, etc.).  Disabled
+  # initially; enable when Alertmanager-style routing is needed.
+  falcosidekick:
+    enabled: false

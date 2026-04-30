@@ -1,0 +1,35 @@
+apiVersion: v2
+name: argo-events
+description: |
+  Argo Events — event-driven workflow automation.  Subscribes to event
+  sources (webhook, kafka, github, k8s resources, etc.), fires sensors
+  that trigger ArgoWorkflows / k8s resources / AWS Lambda / custom
+  endpoints.
+
+  Why this chart exists in our stack:
+    - **CAPA cert prep** — Events is one of the four Argo Project pillars
+      (~10% of CAPA).
+    - **Event-driven platform** — bridge between CI events (GitHub PR
+      merge), system events (cluster state), and CD pipelines.
+    - **Edge/Gateway role** — the JD mentions "context propagation" and
+      event-driven onboarding workflows; Argo Events is the standard
+      open-source pattern.
+
+  Components:
+    - **EventBus** (NATS-backed by default) — broker for events
+    - **EventSource** — subscribes to external event producer
+    - **Sensor** — listens on EventBus, evaluates dependencies, fires
+      triggers when conditions met
+
+  Pattern: deployed only on role=control (mgmt-control).
+
+  Pinned to argo-events 2.4.21 (app v1.9.10).
+
+type: application
+version: 0.1.0
+appVersion: "v1.9.10"
+
+dependencies:
+  - name: argo-events
+    version: 2.4.21
+    repository: https://argoproj.github.io/argo-helm

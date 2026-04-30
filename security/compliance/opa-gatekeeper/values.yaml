@@ -1,0 +1,41 @@
+# opa-gatekeeper umbrella values.
+
+gatekeeper:
+  replicas: 1   # single replica for homelab
+  controllerManager:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+  audit:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+  # Validating + Mutating admission webhooks.
+  # Failure policy = Ignore for homelab safety; flip to Fail for prod.
+  validatingWebhookFailurePolicy: Ignore
+  mutatingWebhookFailurePolicy: Ignore
+
+  # Mutation feature (newer, beta) — disabled by default; enable for
+  # parity with Kyverno mutate rules.
+  enableMutation: true
+
+  # ServiceMonitor for Prometheus
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+
+  # CRDs bundled
+  postInstall:
+    labelNamespace:
+      enabled: true

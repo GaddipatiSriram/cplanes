@@ -1,0 +1,33 @@
+apiVersion: v2
+name: kyverno
+description: |
+  Kyverno — Kubernetes-native policy engine.  YAML-based policies (no
+  Rego), supporting validate / mutate / generate / cleanup / verifyImages
+  rules.  Alternative to OPA Gatekeeper.
+
+  Why both Kyverno AND Gatekeeper in this platform:
+    - **KCA cert** specifically tests Kyverno (validate/mutate/generate/cleanup
+      rule types).
+    - **CKS cert** typically tests OPA Gatekeeper.
+    - Both implement Kubernetes ValidatingAdmissionWebhook + Mutating
+      ditto, on different webhook paths — they coexist cleanly.
+    - Practical reason: most enterprises pick ONE.  Having both deployed
+      lets us compare patterns, then pick per-team preference.
+
+  Default mode: `Audit` (warn + record in PolicyReport, don't block).
+  Switch individual policies to `Enforce` once you trust them.
+
+  Pattern: deployed on role=control (mgmt-control) for cert prep + the
+  central admission point.  Fan to all clusters once policy library
+  is mature.
+
+  Pinned to kyverno 3.8.0 (app v1.18.0).
+
+type: application
+version: 0.1.0
+appVersion: "v1.18.0"
+
+dependencies:
+  - name: kyverno
+    version: 3.8.0
+    repository: https://kyverno.github.io/kyverno/

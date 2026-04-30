@@ -1,0 +1,63 @@
+# kyverno umbrella values.
+
+kyverno:
+  # Three controllers compose Kyverno.  Default is HA (3 replicas each);
+  # for homelab, run single-replica.
+  admissionController:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+    serviceMonitor:
+      enabled: true
+
+  backgroundController:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 25m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+    serviceMonitor:
+      enabled: true
+
+  cleanupController:
+    enabled: true
+    replicas: 1
+    resources:
+      requests:
+        cpu: 25m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+    serviceMonitor:
+      enabled: true
+
+  reportsController:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 25m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+    serviceMonitor:
+      enabled: true
+
+  # Default failure policy — Ignore means if Kyverno is down, admissions
+  # still succeed.  Fail = blocks admission if Kyverno can't respond.
+  # Use Ignore for homelab safety; flip to Fail for production hardening.
+  config:
+    failurePolicy: Ignore
+
+  # CRDs bundled.
+  crds:
+    install: true

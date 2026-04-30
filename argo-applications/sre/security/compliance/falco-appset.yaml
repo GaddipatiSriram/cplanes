@@ -1,0 +1,54 @@
+# ApplicationSet — Falco runtime security on every workload cluster.
+#
+# Pattern A — DaemonSet on every node, every cluster. Selector matches
+# tier=mgmt|dev (excludes unlabeled clusters).
+#
+# Sync wave 2 — alongside other security services.
+
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: falco
+  namespace: argocd-sre
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchExpressions:
+            - { key: tier, operator: In, values: [mgmt, dev] }
+  template:
+    metadata:
+      name: 'falco-{{.name}}'
+      labels:
+        app.kubernetes.io/name: falco
+        app.kubernetes.io/part-of: security-compliance
+      annotations:
+        argocd.argoproj.io/sync-wave: "2"
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/GaddipatiSriram/cplanes.git
+        targetRevision: HEAD
+        path: security/compliance/falco
+        helm:
+          releaseName: falco
+      destination:
+        server: '{{.server}}'
+        namespace: falco
+      syncPolicy:
+        automated:
+          selfHeal: true
+          prune: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+          - SkipDryRunOnMissingResource=true
+          - RespectIgnoreDifferences=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 10s
+            factor: 2
+            maxDuration: 3m

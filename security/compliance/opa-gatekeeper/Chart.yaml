@@ -1,0 +1,27 @@
+apiVersion: v2
+name: opa-gatekeeper
+description: |
+  OPA Gatekeeper — Open Policy Agent integration with Kubernetes admission.
+  Rego-based policies via ConstraintTemplate (the policy logic) +
+  Constraint (the policy instance scoped to resources).  CNCF graduated.
+
+  Why both Kyverno AND Gatekeeper in this platform:
+    - **CKS exam** uses Gatekeeper specifically for admission control.
+    - **KCA exam** uses Kyverno (sister chart in this directory).
+    - **OPA itself** is broader than k8s — can run as a sidecar for
+      Envoy `ext_authz`, which the Edge/Gateway role JD requires.
+      Learning Gatekeeper is the on-ramp to broader OPA fluency.
+
+  Pattern: deployed on role=control (mgmt-control) alongside Kyverno;
+  both webhooks coexist on different paths.
+
+  Pinned to gatekeeper 3.22.2.
+
+type: application
+version: 0.1.0
+appVersion: "v3.22.2"
+
+dependencies:
+  - name: gatekeeper
+    version: 3.22.2
+    repository: https://open-policy-agent.github.io/gatekeeper/charts

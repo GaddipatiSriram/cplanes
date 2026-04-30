@@ -1,0 +1,53 @@
+# argo-rollouts umbrella values.
+
+argo-rollouts:
+  controller:
+    replicas: 1   # single instance is fine for homelab; HA controller is for prod scale
+
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+
+    # Watch all namespaces for Rollout CRs.
+    metrics:
+      enabled: true
+      serviceMonitor:
+        enabled: true
+        additionalLabels:
+          app.kubernetes.io/part-of: control-plane
+
+  # Argo Rollouts dashboard — handy for visualizing canary state.
+  # Lightweight; deploy on the same cluster.
+  dashboard:
+    enabled: true
+    replicas: 1
+    resources:
+      requests:
+        cpu: 25m
+        memory: 64Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi
+    # Expose via Ingress under argocd-sre's hostname pattern.
+    ingress:
+      enabled: true
+      ingressClassName: nginx
+      annotations:
+        cert-manager.io/cluster-issuer: vault-pki
+      hosts:
+        - rollouts.apps.mgmt-control.engatwork.com
+      tls:
+        - hosts:
+            - rollouts.apps.mgmt-control.engatwork.com
+          secretName: rollouts-tls
+
+  # CRDs are bundled with the chart — install them.
+  installCRDs: true
+
+  # No notifications today; can wire to Slack/email later via separate Secret.
+  notifications:
+    enabled: false
