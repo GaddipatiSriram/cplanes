@@ -54,25 +54,21 @@ spec:
             factor: 2
             maxDuration: 3m
       ignoreDifferences:
-        # CRDs: k8s API server normalizes OpenAPI schemas + adds defaults
-        # (.spec.conversion, schema property ordering, etc.). Use
-        # managedFieldsManagers to ignore any field the API server owns
-        # vs what helm submitted. This is the canonical pattern for
-        # CRD drift.
+        # Kyverno's CRDs don't have managedFields populated (helm
+        # installed them via crds/ dir, not SSA), so managedFieldsManagers
+        # is a no-op. Falling back to broad jq ignore on .spec — these
+        # CRDs are owned by the helm chart; ArgoCD doesn't need to police
+        # their schema content. A `helm upgrade` will update them.
         - group: apiextensions.k8s.io
           kind: CustomResourceDefinition
-          managedFieldsManagers:
-            - kube-controller-manager
-            - kube-apiserver
-        # Webhook caBundles get patched by cert-manager / chart's own
-        # injection; same managedFields pattern.
+          jqPathExpressions:
+            - .spec
+        # Webhook caBundles get rewritten by cert-controller; ignore.
         - group: admissionregistration.k8s.io
           kind: ValidatingWebhookConfiguration
-          managedFieldsManagers:
-            - kube-controller-manager
-            - kyverno
+          jqPathExpressions:
+            - .webhooks[]?.clientConfig.caBundle
         - group: admissionregistration.k8s.io
           kind: MutatingWebhookConfiguration
-          managedFieldsManagers:
-            - kube-controller-manager
-            - kyverno
+          jqPathExpressions:
+            - .webhooks[]?.clientConfig.caBundle
