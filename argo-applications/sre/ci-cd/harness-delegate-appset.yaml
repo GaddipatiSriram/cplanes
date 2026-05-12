@@ -1,0 +1,70 @@
+# ApplicationSet — Harness Delegate on every role=control cluster
+# (currently: mgmt-control).
+#
+# Pattern matches the sibling jenkins-appset.yaml; if mgmt-control is later
+# joined by a second control-plane cluster, the AppSet auto-generates an
+# Application targeting it.
+#
+# Apply once:
+#   kubectl --context admin apply -f argo-applications/sre/ci-cd/harness-delegate-appset.yaml
+#
+# Vault prereq (see ci-cd/harness-delegate/README.md):
+#   vault kv put kv/forge/harness/delegate DELEGATE_TOKEN='…' ACCOUNT_ID='…'
+
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: harness-delegate
+  namespace: argocd-sre
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - clusters:
+        selector:
+          matchLabels:
+            role: control
+  template:
+    metadata:
+      name: 'harness-delegate-{{.name}}'
+      labels:
+        app.kubernetes.io/name: harness-delegate
+        app.kubernetes.io/part-of: platform
+      annotations:
+        # Wave 2 — runs after CRDs (wave 0) and identity/secrets (wave 1),
+        # since the chart's ExternalSecret needs vault-forge ClusterSecretStore
+        # already Ready.
+        argocd.argoproj.io/sync-wave: "2"
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/GaddipatiSriram/cplanes.git
+        targetRevision: HEAD
+        path: ci-cd/harness-delegate
+        helm:
+          releaseName: harness-delegate
+      destination:
+        server: '{{.server}}'
+        namespace: harness-delegate
+      # The upstream chart writes a managed-by annotation that argocd
+      # re-detects as drift on every reconcile. Same noise as the
+      # vault/keycloak charts — ignore at the Application level.
+      ignoreDifferences:
+        - group: apps
+          kind: Deployment
+          jsonPointers:
+            - /spec/template/metadata/annotations
+      syncPolicy:
+        automated:
+          selfHeal: true
+          prune: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+          - SkipDryRunOnMissingResource=true
+        retry:
+          limit: 5
+          backoff:
+            duration: 10s
+            factor: 2
+            maxDuration: 3m

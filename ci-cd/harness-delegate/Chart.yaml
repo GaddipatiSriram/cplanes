@@ -1,0 +1,15 @@
+apiVersion: v2
+name: harness-delegate
+description: Harness Delegate on mgmt-control — outbound-only worker for Harness SaaS pipelines
+type: application
+version: 0.1.0
+appVersion: "1.0"
+
+# Upstream chart docs:
+#   https://developer.harness.io/docs/platform/delegates/install-delegates/overview/
+# Chart repo:
+#   helm repo add harness-delegate https://app.harness.io/storage/harness-download/delegate-helm-chart/
+dependencies:
+  - name: harness-delegate-ng
+    version: "1.0.31"
+    repository: https://app.harness.io/storage/harness-download/delegate-helm-chart/

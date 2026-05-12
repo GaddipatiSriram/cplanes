@@ -1,0 +1,76 @@
+# Values for the harness-delegate umbrella chart on mgmt-control.
+# Subchart name: `harness-delegate-ng` — must match Chart.yaml dependency.
+#
+# Architecture:
+#   - Single Deployment, outbound HTTPS to Harness SaaS (app.harness.io)
+#     — no Ingress, no LoadBalancer, no cert-manager interaction.
+#   - DELEGATE_TOKEN pulled from Vault via ESO; the chart consumes the
+#     already-mounted Secret rather than creating one from a Helm value.
+#     ACCOUNT_ID is non-sensitive (visible in your Harness URL) so it stays
+#     as a Helm value, not a Vault path.
+#
+# Bootstrap prerequisites (one-time, before ArgoCD reconciles this chart):
+#   1. Free Harness account at https://app.harness.io
+#   2. Account Settings → Account Resources → Delegate Tokens → New Token
+#      → copy DELEGATE_TOKEN value
+#   3. Stash the token in Vault:
+#        vault kv put kv/forge/harness/delegate \
+#          DELEGATE_TOKEN='<token from step 2>'
+#   4. ArgoCD reconciles → ExternalSecret materializes Secret/harness-delegate-token
+#      → Deployment becomes Ready
+#   5. In Harness UI: Setup → Connectors → New → Argo CD →
+#        URL: https://argocd-sre.apps.mgmt-control.engatwork.com
+#        Auth: bearer token from `argocd account generate-token` (admin scope)
+#        Delegate selector: mgmt-control
+#
+# Image tag + chart version reflect what the Harness "Install Delegate"
+# wizard generates as of 2026-05; bump in lockstep when Harness updates.
+
+harness-delegate-ng:
+  # Friendly name shown in Harness UI; one per cluster.
+  delegateName: mgmt-control
+
+  # Account ID — non-secret, surfaced in app.harness.io URLs as /account/<id>/.
+  accountId: xBu7eb6xTNuB9RJkCfBkmQ
+
+  # Harness SaaS endpoint. The wizard's default. (Free-tier accounts used
+  # to route to /gratis but the UI now generates the bare app.harness.io URL.)
+  managerEndpoint: https://app.harness.io
+
+  # Container image pinned for reproducibility.
+  delegateDockerImage: us-docker.pkg.dev/gar-prod-setup/harness-public/harness/delegate:26.04.89003
+
+  # Replicas. Single replica is fine — pipelines schedule against any healthy
+  # delegate; scale up only under sustained pipeline backlog.
+  replicas: 1
+
+  # Upgrader (disabled): would auto-update the delegate image when Harness
+  # ships a new release. The chart's upgrader subchart base64-encodes the
+  # plaintext `delegateToken` value into UPGRADER_TOKEN — incompatible with
+  # our Vault/ESO secret pattern where `delegateToken` is intentionally
+  # empty. To re-enable later: create a second ExternalSecret writing
+  # UPGRADER_TOKEN to a Secret, then set `upgrader.existingUpgraderToken`
+  # to that Secret name. For now, bump the delegateDockerImage tag manually
+  # when Harness releases (~monthly).
+  upgrader:
+    enabled: false
+
+  # Token sourced from Secret/harness-delegate-token (created by the
+  # ExternalSecret in templates/externalsecret-delegate-token.yaml).
+  # Setting `existingDelegateToken` to the Secret NAME (not the token value)
+  # has two effects in harness-delegate-ng 1.0.31:
+  #   1. templates/secret.yaml is skipped (chart doesn't create its own Secret)
+  #   2. Deployment's `envFrom: secretRef.name` resolves to this value
+  # See chart's _helpers.tpl define "harness-delegate-ng.delegateToken".
+  existingDelegateToken: harness-delegate-token
+
+  # Tight resource limits — delegate is a thin orchestrator, not a runtime.
+  # Heavy build/test work should spawn its own pods, not run in-delegate.
+  cpu: "0.5"
+  memory: "2048M"
+
+  tolerations: []
+  nodeSelector: {}
+
+  labels:
+    app.kubernetes.io/part-of: platform
