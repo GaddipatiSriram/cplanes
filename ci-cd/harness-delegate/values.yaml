@@ -66,8 +66,11 @@ harness-delegate-ng:
 
   # Tight resource limits — delegate is a thin orchestrator, not a runtime.
   # Heavy build/test work should spawn its own pods, not run in-delegate.
-  cpu: "0.5"
-  memory: "2048M"
+  # Note: chart's _helpers.tpl appends "Mi" to memory, so this MUST be a
+  # bare integer (Mi units) — `"2048M"` becomes `2048MMi` which k8s rejects
+  # with "unable to parse quantity's suffix". cpu is passed through verbatim.
+  cpu: 0.5
+  memory: 2048
 
   tolerations: []
   nodeSelector: {}
