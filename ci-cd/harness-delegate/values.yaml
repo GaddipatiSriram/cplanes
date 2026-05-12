@@ -68,8 +68,10 @@ harness-delegate-ng:
   # Heavy build/test work should spawn its own pods, not run in-delegate.
   # Note: chart's _helpers.tpl appends "Mi" to memory, so this MUST be a
   # bare integer (Mi units) — `"2048M"` becomes `2048MMi` which k8s rejects
-  # with "unable to parse quantity's suffix". cpu is passed through verbatim.
-  cpu: 0.5
+  # with "unable to parse quantity's suffix".
+  # CPU rendered as a YAML float (0.5) is also rejected by k8s ServerSideApply
+  # quantity parser — use a millicore string instead.
+  cpu: "500m"
   memory: 2048
 
   tolerations: []
