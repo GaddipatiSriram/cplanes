@@ -4,6 +4,17 @@ Backlog ordered by likely sequence.
 
 ---
 
+## argo-cd: `accounts.harness` for narrower-scope tokens (deferred)
+
+**Status:** open. Persisted `accounts.admin: "apiKey, login"` to
+`control/argo-cd/values-sre.yaml` (commit `77955d0`) on 2026-05-13 to
+unblock Harness integration. The admin-scoped JWT works but is over-
+privileged. See `ci-cd/todo.md` for the migration plan to a dedicated
+`harness` account with `role:sync-only` RBAC. Both changes land here
+in `values-sre.yaml`.
+
+---
+
 ## crossplane-providers: replace skip_tls_verify with proper CA bundle
 
 **Status:** Phase 1 done (cert-manager flow), Phase 2 open (drop the flags).
