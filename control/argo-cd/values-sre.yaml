@@ -5,9 +5,7 @@
 #   - Cluster-scoped install: argocd-sre manages CRDs, ClusterRoles, and
 #     arbitrary namespaces across the entire homelab (mgmt-control,
 #     mgmt-workload, mgmt-storage, mgmt-forge, mgmt-observ, future EKS).
-#   - This is the explicit fix for the OKD-era namespace-scoped quirk
-#     (project_argocd_sre_namespace_scoped.md). On vanilla helm the
-#     default IS cluster-scoped; we just keep it that way.
+#   - Vanilla helm default IS cluster-scoped; we just keep it that way.
 #   - UI at https://argocd-sre.apps.mgmt-control.engatwork.com
 #   - cert-manager + ingress-nginx (Pattern A baseline on mgmt-control)
 #   - HA disabled initially (single replica per component) — flip when
@@ -29,6 +27,15 @@ argo-cd:
       # Allow Applications in any namespace to reference repos registered
       # with this controller.
       timeout.reconciliation: 180s
+      # Grant the local admin account the `apiKey` capability so
+      # `argocd account generate-token --account admin` works. The default
+      # admin account has only `login` capability — fine for UI use but
+      # blocks API tokens, which Harness needs for its bearer-auth flow
+      # against /api/v1/applications/*. Added 2026-05-13 after manually
+      # patching argocd-cm to get the Harness Delegate integration unblocked;
+      # this entry persists the change so the next ArgoCD reconcile doesn't
+      # revert it.
+      accounts.admin: "apiKey, login"
       # OIDC against the engatwork Keycloak realm. clientSecret reference
       # `$argocd-oidc:client-secret` is resolved by argocd-server from
       # Secret/argocd-oidc in this namespace (rendered by ESO via
