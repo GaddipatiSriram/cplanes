@@ -108,11 +108,8 @@ grafana:
               spanStartTimeShift: -1m
               spanEndTimeShift: 1m
 
-  # Ingress — for now uses ingress-nginx's default self-signed cert.
-  # Migrate to a cert-manager-issued Vault PKI cert once the
-  # ClusterIssuer exists on this cluster (forge/todo.md item 2 covers
-  # the broader pattern; this Ingress will pick it up by adding the
-  # cert-manager.io/cluster-issuer annotation + a tls block).
+  # Ingress — cert-manager-issued Vault PKI cert (engatwork Root CA).
+  # The cloudflared tunnel validates this origin against that CA.
   ingress:
     enabled: true
     ingressClassName: nginx
@@ -120,6 +117,15 @@ grafana:
       - grafana.apps.mgmt-observability.engatwork.com
     annotations:
       nginx.ingress.kubernetes.io/ssl-redirect: "true"
+      # vault-pki ClusterIssuer now exists on mgmt-observability (unblocked
+      # 2026-08-28) — issue a real engatwork-CA cert so the cloudflared
+      # tunnel's originRequest.caPool validates this origin (was serving the
+      # ingress-nginx fake cert -> 502 through the tunnel).
+      cert-manager.io/cluster-issuer: vault-pki
+    tls:
+      - secretName: grafana-tls
+        hosts:
+          - grafana.apps.mgmt-observability.engatwork.com
 
   # Service type ClusterIP; ingress fronts it externally.
   service:
