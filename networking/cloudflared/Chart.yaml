@@ -1,0 +1,21 @@
+apiVersion: v2
+name: cloudflared
+description: |
+  Self-contained cloudflared Deployment — the homelab's outbound-only path
+  from the public internet. Runs on mgmt-control (role=control); dials out to
+  the Cloudflare edge over QUIC/443, holds the connection open, and proxies
+  inbound requests to each Tier-1 service's ingress-nginx VIP.
+
+  No inbound WAN ports, no DDNS, works behind the ISP's double-NAT. Public
+  TLS is terminated at the Cloudflare edge; the last hop (cloudflared -> VIP)
+  is re-validated against the engatwork.com Root CA via originRequest.caPool,
+  so the chain is Full-strict end to end.
+
+  Locally-managed tunnel: ingress rules live in templates/configmap.yaml
+  (rendered from .Values.ingress), NOT the Cloudflare dashboard. The tunnel
+  credentials come from Vault via templates/tunnel-externalsecret.yaml.
+
+  Design record + rollout checklist: networking/cloudflared/README.md
+type: application
+version: 0.1.0
+appVersion: "2026.8.2"

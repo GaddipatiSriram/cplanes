@@ -1,0 +1,23 @@
+# Metrics-only Service. cloudflared needs no inbound Service for traffic
+# (it dials out) — this exists solely so Prometheus can scrape /metrics and
+# tunnel health (cloudflared_tunnel_ha_connections) is visible in Grafana.
+apiVersion: v1
+kind: Service
+metadata:
+  name: cloudflared-metrics
+  labels:
+    app.kubernetes.io/name: cloudflared
+    app.kubernetes.io/part-of: platform
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: {{ .Values.metricsPort | quote }}
+    prometheus.io/path: /metrics
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: cloudflared
+  ports:
+    - name: metrics
+      port: {{ .Values.metricsPort }}
+      targetPort: metrics
+      protocol: TCP

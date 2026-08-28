@@ -1,0 +1,39 @@
+# cloudflared config.yaml (locally-managed tunnel) + the origin CA bundle.
+#
+# Ingress rules are rendered from .Values.ingress — the Cloudflare dashboard
+# holds only the CNAMEs and Access apps, never the routing. `run` reads the
+# tunnel id from the `tunnel:` key below; credentials.json is projected from
+# Secret/cloudflared-tunnel (templates/tunnel-externalsecret.yaml).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cloudflared
+  labels:
+    app.kubernetes.io/name: cloudflared
+    app.kubernetes.io/part-of: platform
+data:
+  config.yaml: |
+    tunnel: {{ required "cloudflared: .Values.tunnel.id is required — create the tunnel, then set tunnel.id (the `t` field of `echo <TOKEN> | base64 -d`)" .Values.tunnel.id }}
+    credentials-file: /etc/cloudflared/credentials.json
+    metrics: 0.0.0.0:{{ .Values.metricsPort }}
+    no-autoupdate: true
+    {{- if .Values.warpRouting.enabled }}
+    warp-routing:
+      enabled: true
+    {{- end }}
+    # Global default — every origin cert is validated against the engatwork
+    # Root CA. Overridable per-rule if a backend ever needs it.
+    originRequest:
+      caPool: /etc/cloudflared/engatwork-ca.crt
+    ingress:
+    {{- range .Values.ingress }}
+      - hostname: {{ .hostname }}
+        service: {{ .service }}
+        originRequest:
+          httpHostHeader: {{ .hostname }}
+    {{- end }}
+      # Catch-all — anything not matched above (including a stray CNAME) 404s
+      # instead of leaking to a default backend.
+      - service: http_status:404
+  engatwork-ca.crt: |
+{{ .Values.caBundle | indent 4 }}

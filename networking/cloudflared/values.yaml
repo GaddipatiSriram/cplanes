@@ -1,0 +1,126 @@
+# Values for the mgmt-control cloudflared chart.
+#
+# Architecture (networking/cloudflared/README.md §2-3):
+#   Browser --TLS--> Cloudflare edge --QUIC/HTTP2 (outbound-only)--> cloudflared
+#           --HTTPS (caPool-validated)--> ingress-nginx VIP --> Service
+#
+#   - Locally-managed tunnel: this chart owns the ingress rules (below);
+#     the Cloudflare dashboard only holds the proxied CNAMEs + Access apps.
+#   - credentials.json is rendered by templates/tunnel-externalsecret.yaml
+#     from Vault kv/data/forge/cloudflared/tunnel (ESO / ClusterSecretStore
+#     vault-forge).
+#   - WARP private-route (Tier-2: ArgoCD, Vault, Keycloak, Prometheus,
+#     pfSense, oVirt, k8s API) is enabled here; the 10.10.0.0/16 route
+#     itself is added in the Cloudflare dashboard (Networks > Routes).
+
+tunnel:
+  # Human-readable tunnel name (Cloudflare dashboard: Zero Trust > Networks
+  # > Tunnels). Informational only — cloudflared routes by id.
+  name: homelab
+
+  # REQUIRED. The tunnel UUID. Not a secret — it is the public CNAME target
+  # (<id>.cfargotunnel.com). Take it from the token: `echo <TOKEN> | base64 -d`
+  # -> {"a":<account>,"t":<id>,"s":<secret>}; this is `t`. MUST match the
+  # tunnel_id property stored in Vault (both come from the same decode).
+  id: ""
+
+image:
+  repository: cloudflare/cloudflared
+  tag: "2026.8.2"
+  pullPolicy: IfNotPresent
+
+# Two replicas, anti-affinity across nodes — losing one node must not drop
+# the tunnel. cloudflared holds 4 edge connections per replica.
+replicas: 2
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 64Mi
+  limits:
+    cpu: 100m
+    memory: 128Mi
+
+# cloudflared metrics + /ready endpoint (readiness gate: 200 once >=1 edge
+# connection is up).
+metricsPort: 2000
+
+# WARP private-network routing for Tier-2 (no public hostname). Enables the
+# feature in cloudflared; the CIDR route is registered dashboard-side.
+warpRouting:
+  enabled: true
+
+# Origin TLS trust anchor. cloudflared validates every origin cert against
+# this CA (originRequest.caPool) — Full-strict on the last hop. Same PEM as
+# security/secrets/external-secrets/values.yaml `vault.caBundle` and
+# security/ca-pki/cert-manager/values.yaml `vaultPki.caBundle`; rotate all
+# three together when the engatwork.com root rolls.
+caBundle: |
+  -----BEGIN CERTIFICATE-----
+  MIIFMTCCAxmgAwIBAgIUb/irHt72XajogGWAm+OI63lKxMcwDQYJKoZIhvcNAQEL
+  BQAwIDEeMBwGA1UEAxMVZW5nYXR3b3JrLmNvbSBSb290IENBMB4XDTI2MDQyNTIy
+  MDMwOVoXDTM2MDQyMjIyMDMzMFowIDEeMBwGA1UEAxMVZW5nYXR3b3JrLmNvbSBS
+  b290IENBMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAuWgb2PSWkG77
+  QT9P2U4Qgc6rGSC5YcfkRiODD1asXhjr+P68dtC8K55Os/FMpcbWjPOE9s2GClyh
+  fdABA43qdgC+4tiTZ7DhCMNmOt6CnhnFPa2yE/nh2ugmERSvkt8WzI58rTaizUzg
+  m8aHpkgtaJjWgRoVGrkclYu5rbwAkA0aNfgKxIdEbZqPfDb+pyw90cYau24+OKGa
+  aFwNFcQiJXEAubhqjXs7ML6MDiwT6sa+LSHQez7DwkVlv08ZeINGyVhdnrrPywf8
+  jAI0NHbuOdaxTrBexYGYGiTcRBL693fWNP8EfyMsAejge9U1uTCKtGehDu/MjLb8
+  YlaST43hmDazAgylkGSL8Dwxlh6Tmfks9/QMLP3zqVSuU0F0vuMziZqQCjELDVDZ
+  TBwPVl+f1LbGCVecDSm/+w0HFTSmr94pQ6tNF7y+g3iTFxCTkBbX+HE8nSLOj9XO
+  +WUFd703C/NrT7X+2YcBNVCI3S5mT7EOWvQdmHZUloGAHxs2CQoYNYb9vPKLEtMK
+  5YcLoNlc6kRenqOVYrLPke++sL3yLO41kxtlSdHm5C6+HCKWPKjb96Ed4AZJDiCP
+  BeHE7jERRNRRDIQK4mizwQ/OEu8QxgPIOSjM3ApWJhGpdMyDtrMerWzoLgMH0EKk
+  ExrkNFPXhg5XT6yToAjtNHThFQn6/Q0CAwEAAaNjMGEwDgYDVR0PAQH/BAQDAgEG
+  MA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFJIgQSDImGBpTXgyXcs1frDg9Zdi
+  MB8GA1UdIwQYMBaAFJIgQSDImGBpTXgyXcs1frDg9ZdiMA0GCSqGSIb3DQEBCwUA
+  A4ICAQAtz3s3PkWvyq/ujRfrqPzoNxn/iavCxft1kl/6qgq1GVwg9tayx2RHdrNr
+  RqaqB3xaM3v/2JLmBFyR/J8uNRXPCMu55iDV3IQIbFoMJrIdlGrzrszccN2UYUR8
+  3eQdOplVmc2Q10Vb0O/nv+0VoRy1ahOtPexWK2HWWLsNYD2+lG0ZGTzW3fbV+JBE
+  c78C1EfUXSv6HhfEC8zskN19zR/6bEps+6rSlTrSgF39qhKlz7l0Kv/a4t15V54b
+  VAijJwM6wkfNMmFWfc6c+hv2xzc7ukc75/Mmm+R/i4TZ8KEAZOY1ZUqJpG5FFt3T
+  5qfmpVxeSHUKvjalh5koiM+NRlasBd4L1LFdo5DECZfgcGpsNdXI2Oygc0Dcl2oC
+  3tamzFwq8xzRz5XCBLtXSRS2OwLAlcTT9Fl0VQR5Re6VYeRb84Pht+oBuU02icXY
+  XvI2WJf0NokDL1qFhBWWecD2BS+odSSr/bN7ScoZc0dR7euKqWzxk/qZwaJaJAM/
+  njx4e2YlFek/0+h0wFjMqzY7iB8f8bmcNOKZaib79vdmtO9k9ubfmkdQvytAVGr/
+  +9vlXLd1qUxSa0ORxrsCSAmnfA7UQFjuiTBVSDKXgN6fbNGgkkZkEB8oxMaLy3J/
+  jDkdBG0JvTai0H8yJyYs8lSsnninELGxHWqpUZezr/m+6YdWiw==
+  -----END CERTIFICATE-----
+
+# ---------------------------------------------------------------------------
+# Tier-1 public hostnames (README §3). Each entry:
+#   - is a proxied CNAME -> <tunnel.id>.cfargotunnel.com (created dashboard-side)
+#   - carries a Cloudflare Access app (Google zdozisik@gmail.com only)
+#   - maps here to the relevant cluster's ingress-nginx VIP
+# Host header == hostname (split-horizon zone), set explicitly so intent is
+# clear. Tier-2 services are NOT listed here — they are reached over WARP at
+# their normal URLs, no public DNS.
+#
+# Ingress VIPs (networking/metallb/README.md):
+#   mgmt-control       10.10.2.200
+#   mgmt-observability 10.10.3.201
+#   mgmt-forge         10.10.5.201
+ingress:
+  - hostname: home.apps.mgmt-control.engatwork.com
+    service: https://10.10.2.200
+  - hostname: workflows.apps.mgmt-control.engatwork.com
+    service: https://10.10.2.200
+  - hostname: backstage.apps.mgmt-control.engatwork.com
+    service: https://10.10.2.200
+  - hostname: jenkins.apps.mgmt-control.engatwork.com
+    service: https://10.10.2.200
+  - hostname: grafana.apps.mgmt-observability.engatwork.com
+    service: https://10.10.3.201
+  - hostname: sonarqube.apps.mgmt-forge.engatwork.com
+    service: https://10.10.5.201
+
+# ESO wiring for templates/tunnel-externalsecret.yaml. vaultPath is relative
+# to the KV v2 mount `kv` (ClusterSecretStore vault-forge, path: kv) — i.e.
+# kv/data/forge/cloudflared/tunnel. Covered by the existing forge-reader
+# policy (kv/data/forge/*), so no vault-config change is needed.
+externalSecret:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: vault-forge
+    kind: ClusterSecretStore
+  vaultPath: forge/cloudflared/tunnel
