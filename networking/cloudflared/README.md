@@ -214,12 +214,19 @@ it is never given a tunnel ingress rule.
 
 ### Cloudflare (owner: you — dashboard + `cloudflared` CLI)
 
-- [ ] Zero Trust → Networks → Tunnels → **Create tunnel** `homelab`; copy
-      the tunnel token.
-- [ ] Delete the Iteration-1 proxied `A` record(s). Add the 6 Tier-1
-      **public hostnames** as `CNAME` → `<UUID>.cfargotunnel.com` (proxied).
-- [ ] SSL/TLS mode → **Full (strict)** is now safe (cloudflared validates
-      the `engatwork` CA via `caPool`).
+- [x] Zero Trust → Networks → Tunnels → **Create tunnel** `homelab`
+      (2026-08-28). ID `37c41133-1280-4e52-9b54-5fce9b365d1e`.
+- [x] 6 Tier-1 **public hostnames** as proxied `CNAME` →
+      `37c41133-1280-4e52-9b54-5fce9b365d1e.cfargotunnel.com` (2026-08-28).
+      No Iteration-1 `A` records existed to delete.
+- [ ] **Advanced Certificate Manager** ($10/mo, subscribed 2026-08-28) —
+      order ONE advanced cert (Let's Encrypt) covering the three wildcards
+      `*.apps.mgmt-control` / `*.apps.mgmt-observability` /
+      `*.apps.mgmt-forge` `.engatwork.com`. Required: free Universal SSL is
+      `engatwork.com` + `*.engatwork.com` only — the 4-label tunnel names
+      get NO edge cert without this (TLS handshake fails at the edge). See §6.
+- [ ] SSL/TLS mode → **Full (strict)** — safe once the advanced cert is
+      active (cloudflared already validates the `engatwork` CA via `caPool`).
 - [ ] (WARP) Networks → Routes → add `10.10.0.0/16` via `homelab`; enrol
       laptop/phone in the Zero Trust org. This is how Tier-2 (Vault,
       ArgoCD, Prometheus, pfSense, oVirt, k8s API) is reached.
@@ -239,17 +246,12 @@ it is never given a tunnel ingress rule.
       via `ClusterSecretStore vault-forge`. Named `tunnel-externalsecret.yaml`
       (not `*-secret.yaml` / `*-creds.yaml`) so `.gitignore` keeps it
       (repo memory `feedback_gitignore_secrets`).
-- [ ] **Vault (you)** — the dashboard gives one *token*; a locally-managed
-      tunnel needs its three decoded fields:
-      ```
-      T=$(echo <TOKEN> | base64 -d)
-      vault kv put kv/forge/cloudflared/tunnel \
-        account_tag=$(jq -r .a <<<"$T") \
-        tunnel_id=$(jq -r .t <<<"$T") \
-        tunnel_secret=$(jq -r .s <<<"$T")
-      ```
-      Then set `tunnel.id` (= `tunnel_id`, the public CNAME target) in
-      `networking/cloudflared/values.yaml` — the chart `required`s it.
+- [x] **Vault** — `kv/forge/cloudflared/tunnel` seeded 2026-08-28 (via the
+      Vault UI: Secrets → kv → create `forge/cloudflared/tunnel` with keys
+      `account_tag` / `tunnel_id` / `tunnel_secret`, the three fields of
+      `echo <TOKEN> | base64 -d`). `tunnel.id` set in
+      `networking/cloudflared/values.yaml` (commit `ccb1edf`).
+      ESO renders `Secret/cloudflared-tunnel` → `credentials.json`.
 - [x] `argo-applications/sre/networking/cloudflared-appset.yaml` — Pattern B
       (`role=control` → mgmt-control), sync-wave 5 (after ingress-nginx / ESO /
       oauth2-proxy / Homer), ESO `ignoreDifferences` like the oauth2-proxy AppSet.
@@ -258,8 +260,9 @@ it is never given a tunnel ingress rule.
 
 ### Verify
 
-- [ ] `kubectl -n cloudflared logs deploy/cloudflared` → `Registered
-      tunnel connection` ×4; tunnel **HEALTHY** in dashboard.
+- [x] `kubectl -n cloudflared logs deploy/cloudflared` → `Registered
+      tunnel connection` ×4 per replica (2026-08-28, 8 edge connections
+      total; QUIC to ewr). Pods Ready via `/ready`.
 - [ ] Phone on cellular → `https://home.<public-domain>` → Access login →
       Homer.
 - [ ] From WARP → `https://ovirt.engatwork.com` loads; `ping 10.10.2.101`.
@@ -281,6 +284,41 @@ game-over for the whole homelab.
   normal URL, zero public surface.
 - Same logic for Vault, ArgoCD, the k8s API servers, Keycloak `/admin`.
   One `10.10.0.0/16` route covers all of them.
+
+---
+
+## 6. Edge TLS coverage for deep hostnames
+
+**Problem found 2026-08-28.** Cloudflare's free **Universal SSL** covers only
+the zone apex and a **single-label** wildcard: `engatwork.com` and
+`*.engatwork.com`. Every Tier-1 tunnel hostname is 4 labels deep
+(`home.apps.mgmt-control.engatwork.com`), so the edge has **no certificate**
+to present for it — the TLS handshake fails before HTTP, and the site is
+unreachable from the public internet even though the tunnel itself is
+healthy. (Internal access is unaffected: split-horizon DNS sends LAN clients
+straight to the ingress VIP, which serves the `engatwork` origin cert.)
+
+Options considered:
+
+| | Cost | Effort | Verdict |
+|---|---|---|---|
+| **A. Advanced Certificate Manager** | $10/mo/zone | ~none | **chosen.** One advanced cert with the three `*.apps.mgmt-*` wildcards. No cluster / Homer / split-horizon changes. ACM works on the Free plan. |
+| B. Flatten public names to `home.engatwork.com` etc. | free | high | cloudflared would rewrite Host back to the deep internal name, but Homer's oauth2-proxy `auth-signin` redirect points at the deep name — SSO breaks unless auth also moves to Cloudflare Access. Fights the split-horizon design. |
+| C. Subdomain zones (`apps.mgmt-control.engatwork.com` as its own CF zone, NS-delegated) | free | medium | makes the tunnel names 1-label within their zone — Universal SSL then covers them. Costs 3 extra zones + NS delegation + keeping the internal CoreDNS authoritative zone consistent. |
+
+### Decision — A (2026-08-28)
+
+- ACM subscribed on `engatwork.com`.
+- One **advanced certificate pack**, CA = **Let's Encrypt**, hosts:
+  - `*.apps.mgmt-control.engatwork.com`
+  - `*.apps.mgmt-observability.engatwork.com`
+  - `*.apps.mgmt-forge.engatwork.com`
+- DNS (TXT) validation is automatic — the zone uses Cloudflare
+  nameservers, so Cloudflare adds and removes the `_acme-challenge` records
+  itself. Issuance ~10–20 min; auto-renews at ~30 days remaining.
+- After it shows **Active**: set SSL/TLS mode to **Full (strict)** and
+  re-test the public path
+  (`curl --resolve <host>:443:<cf-edge-ip> https://<host>/`).
 
 ---
 
