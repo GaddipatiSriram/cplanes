@@ -22,7 +22,7 @@ tunnel:
   # (<id>.cfargotunnel.com). Take it from the token: `echo <TOKEN> | base64 -d`
   # -> {"a":<account>,"t":<id>,"s":<secret>}; this is `t`. MUST match the
   # tunnel_id property stored in Vault (both come from the same decode).
-  id: "37c41133-1280-4e52-9b54-5fce9b365d1e"
+  id: "b23f12a5-3986-41cf-a56d-1c646054cac9"
 
 image:
   repository: cloudflare/cloudflared
