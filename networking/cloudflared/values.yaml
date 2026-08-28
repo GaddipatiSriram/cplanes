@@ -115,6 +115,15 @@ ingress:
     service: https://10.10.2.200
   - hostname: jenkins.apps.mgmt-control.engatwork.com
     service: https://10.10.2.200
+  # ArgoCD — promoted from Tier-2 (WARP) to public. Full blast radius (deploys
+  # to every cluster), so it MUST sit behind a Cloudflare Access app with an
+  # Allow policy (zdozisik@ / sriram.gc432@). SSO callback path /auth/callback
+  # is server-side from the browser, no Access bypass needed — the Keycloak
+  # OIDC endpoints it hits are on the keycloak hostname, already bypassed there.
+  - hostname: argocd-sre.apps.mgmt-control.engatwork.com
+    service: https://10.10.2.200
+  - hostname: argocd-devops.apps.mgmt-control.engatwork.com
+    service: https://10.10.2.200
   - hostname: grafana.apps.mgmt-observability.engatwork.com
     service: https://10.10.3.201
   - hostname: sonarqube.apps.mgmt-forge.engatwork.com
