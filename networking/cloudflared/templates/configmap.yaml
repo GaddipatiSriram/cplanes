@@ -18,8 +18,11 @@ data:
     metrics: 0.0.0.0:{{ .Values.metricsPort }}
     no-autoupdate: true
     {{- if .Values.warpRouting.enabled }}
-    warp-routing:
-      enabled: true
+    # warp-routing has no config keys in cloudflared 2026.8.x — an unknown
+    # key here makes cloudflared reject the WHOLE config (503 everywhere).
+    # Private-network routing is enabled by the registered teamnet route
+    # (10.10.0.0/16). Block kept, empty, as an intent marker.
+    warp-routing: {}
     {{- end }}
     # Global default — every origin cert is validated against the engatwork
     # Root CA. Overridable per-rule if a backend ever needs it.
