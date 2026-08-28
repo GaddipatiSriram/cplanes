@@ -25,10 +25,18 @@ data:
     # Root CA. Overridable per-rule if a backend ever needs it.
     originRequest:
       caPool: /etc/cloudflared/engatwork-ca.crt
+    # Rules match top-to-bottom, first hit wins. A rule may set `path` (regex)
+    # to expose only part of a hostname — e.g. Keycloak's OIDC endpoints
+    # without its /admin console. `http_status:*` pseudo-services need no
+    # originRequest.
     ingress:
     {{- range .Values.ingress }}
       - hostname: {{ .hostname }}
+        {{- if .path }}
+        path: {{ .path | quote }}
+        {{- end }}
         service: {{ .service }}
+        {{- if not (hasPrefix "http_status:" .service) }}
         originRequest:
           # service is dialed by IP (the ingress-nginx VIP). originServerName
           # makes cloudflared send SNI = the hostname (so ingress-nginx picks
@@ -36,6 +44,7 @@ data:
           # rather than the IP — the engatwork certs carry DNS SANs only.
           originServerName: {{ .hostname }}
           httpHostHeader: {{ .hostname }}
+        {{- end }}
     {{- end }}
       # Catch-all — anything not matched above (including a stray CNAME) 404s
       # instead of leaking to a default backend.

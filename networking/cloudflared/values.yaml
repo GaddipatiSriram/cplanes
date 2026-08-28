@@ -119,6 +119,14 @@ ingress:
     service: https://10.10.3.201
   - hostname: sonarqube.apps.mgmt-forge.engatwork.com
     service: https://10.10.5.201
+  # Keycloak — OIDC + login-page assets ONLY, so public apps (home.engatwork.com)
+  # can complete SSO from the internet. /auth/admin and everything else on this
+  # hostname 404s at the tunnel; the full console stays Tier-2 (WARP).
+  - hostname: keycloak.apps.mgmt-forge.engatwork.com
+    path: '^/auth/(realms/engatwork/|resources/)'
+    service: https://10.10.5.201
+  - hostname: keycloak.apps.mgmt-forge.engatwork.com
+    service: http_status:404
 
 # ESO wiring for templates/tunnel-externalsecret.yaml. vaultPath is relative
 # to the KV v2 mount `kv` (ClusterSecretStore vault-forge, path: kv) — i.e.
