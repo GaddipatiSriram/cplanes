@@ -106,7 +106,7 @@ public DNS, no public login page. This is the tool for admin planes.
 
 Requested: **Homer + every service Homer links to.** Those services (from
 `cplanes/control/homer/values.yaml`) split into two risk tiers. **All**
-hostnames sit behind Cloudflare Access (Google `zdozisik@gmail.com`, that
+hostnames sit behind Cloudflare Access (Google `sriram.gc432@gmail.com`, that
 identity only); the tiers differ in whether a public DNS name exists at
 all.
 
@@ -186,7 +186,7 @@ it is never given a tunnel ingress rule.
       `jenkins` (`.apps.mgmt-control`), `grafana` (`.apps.mgmt-observability`),
       `sonarqube` (`.apps.mgmt-forge`). Everything else Homer links to is
       **Tier 2 — WARP-only** (§3).
-- ✅ **Access identity**: Google `zdozisik@gmail.com`, that identity only,
+- ✅ **Access identity**: Google `sriram.gc432@gmail.com`, that identity only,
       on every Tier-1 hostname.
 - [ ] Open: confirm nobody wants a Tier-2 service promoted to a
       `Require-WARP` public hostname.
