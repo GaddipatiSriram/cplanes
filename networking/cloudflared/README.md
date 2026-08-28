@@ -219,14 +219,15 @@ it is never given a tunnel ingress rule.
 - [x] 6 Tier-1 **public hostnames** as proxied `CNAME` →
       `37c41133-1280-4e52-9b54-5fce9b365d1e.cfargotunnel.com` (2026-08-28).
       No Iteration-1 `A` records existed to delete.
-- [ ] **Advanced Certificate Manager** ($10/mo, subscribed 2026-08-28) —
-      order ONE advanced cert (Let's Encrypt) covering the three wildcards
-      `*.apps.mgmt-control` / `*.apps.mgmt-observability` /
-      `*.apps.mgmt-forge` `.engatwork.com`. Required: free Universal SSL is
-      `engatwork.com` + `*.engatwork.com` only — the 4-label tunnel names
-      get NO edge cert without this (TLS handshake fails at the edge). See §6.
-- [ ] SSL/TLS mode → **Full (strict)** — safe once the advanced cert is
-      active (cloudflared already validates the `engatwork` CA via `caPool`).
+- [x] **Advanced Certificate Manager** ($10/mo, 2026-08-28) — one advanced
+      pack (Google Trust Services) covering `*.apps.mgmt-control` /
+      `*.apps.mgmt-observability` / `*.apps.mgmt-forge` `.engatwork.com`.
+      Free Universal SSL is `engatwork.com` + `*.engatwork.com` only, so the
+      4-label tunnel names get no edge cert without this. See §6 (incl. the
+      prefill-hosts gotcha).
+- [ ] SSL/TLS mode → **Full (strict)** — safe now (cloudflared validates
+      the origin via `caPool` + `originServerName`). Needs `Zone Settings`
+      access / dashboard.
 - [ ] (WARP) Networks → Routes → add `10.10.0.0/16` via `homelab`; enrol
       laptop/phone in the Zero Trust org. This is how Tier-2 (Vault,
       ArgoCD, Prometheus, pfSense, oVirt, k8s API) is reached.
@@ -263,6 +264,10 @@ it is never given a tunnel ingress rule.
 - [x] `kubectl -n cloudflared logs deploy/cloudflared` → `Registered
       tunnel connection` ×4 per replica (2026-08-28, 8 edge connections
       total; QUIC to ewr). Pods Ready via `/ready`.
+- [x] Public path verified 2026-08-28 (curl `--resolve` to a CF edge IP):
+      all 6 Tier-1 hosts return valid edge TLS + correct origin response
+      (home → 302 `/oauth2/start`; workflows/backstage/sonarqube 200;
+      jenkins 403 own-auth; grafana 302 `/login`).
 - [ ] Phone on cellular → `https://home.<public-domain>` → Access login →
       Homer.
 - [ ] From WARP → `https://ovirt.engatwork.com` loads; `ping 10.10.2.101`.
@@ -306,19 +311,63 @@ Options considered:
 | B. Flatten public names to `home.engatwork.com` etc. | free | high | cloudflared would rewrite Host back to the deep internal name, but Homer's oauth2-proxy `auth-signin` redirect points at the deep name — SSO breaks unless auth also moves to Cloudflare Access. Fights the split-horizon design. |
 | C. Subdomain zones (`apps.mgmt-control.engatwork.com` as its own CF zone, NS-delegated) | free | medium | makes the tunnel names 1-label within their zone — Universal SSL then covers them. Costs 3 extra zones + NS delegation + keeping the internal CoreDNS authoritative zone consistent. |
 
-### Decision — A (2026-08-28)
+### Decision — A (2026-08-28, done)
 
 - ACM subscribed on `engatwork.com`.
-- One **advanced certificate pack**, CA = **Let's Encrypt**, hosts:
+- One **advanced certificate pack** (CA = **Google Trust Services**), hosts:
   - `*.apps.mgmt-control.engatwork.com`
   - `*.apps.mgmt-observability.engatwork.com`
   - `*.apps.mgmt-forge.engatwork.com`
 - DNS (TXT) validation is automatic — the zone uses Cloudflare
-  nameservers, so Cloudflare adds and removes the `_acme-challenge` records
-  itself. Issuance ~10–20 min; auto-renews at ~30 days remaining.
-- After it shows **Active**: set SSL/TLS mode to **Full (strict)** and
-  re-test the public path
-  (`curl --resolve <host>:443:<cf-edge-ip> https://<host>/`).
+  nameservers, so Cloudflare adds/removes the `_acme-challenge` records
+  itself. Issued in ~5 min; auto-renews at ~30 days remaining.
+- **Gotcha:** the "Order Advanced Certificate" dialog prefills hosts as
+  `engatwork.com` + `*.engatwork.com`. Those must be **replaced** with the
+  three deep wildcards — the first order kept the prefill and covered
+  nothing new. A pack's `hosts` can't be edited after creation; delete and
+  re-order (`POST .../ssl/certificate_packs/order`).
+- Still open: **SSL/TLS mode → Full (strict)** (needs `Zone Settings`
+  scope / dashboard). Safe now — cloudflared already validates the origin
+  via `caPool` + `originServerName`.
+
+---
+
+## 7. Origin-side fixes found during rollout (2026-08-28)
+
+Two things broke the edge→origin hop and were fixed in-repo:
+
+### `originServerName` per ingress rule — `configmap.yaml`
+
+`service:` is dialed by **IP** (the ingress-nginx VIP). Without
+`originServerName`, cloudflared validates the origin cert against the IP:
+
+```
+tls: failed to verify certificate: x509: cannot validate certificate for
+10.10.2.200 because it doesn't contain any IP SANs        → HTTP 502
+```
+
+The engatwork PKI certs carry **DNS SANs only**. Setting
+`originRequest.originServerName: <hostname>` makes cloudflared send SNI =
+hostname (so ingress-nginx serves the right cert) and check the SAN against
+the hostname. Fixed in `2917662`.
+
+### grafana ingress had no TLS — `observability/grafana/values.yaml`
+
+`grafana.apps.mgmt-observability` Ingress was **HTTP-only** (port 80, no
+`tls:` block, no `cert-manager` annotation) — its four siblings
+(alertmanager / loki / prometheus / tempo) all had `vault-pki` TLS. The
+tunnel dials `https://` and got ingress-nginx's fake `ingress.local` cert
+→ `caPool` validation fail → 502. Added `grafana-tls` via the
+`vault-pki` ClusterIssuer (now present on mgmt-observability). Fixed in
+`26430ba`.
+
+**Lesson for adding a Tier-1 host later:** its origin Ingress must serve a
+real engatwork-CA cert for that exact hostname, or the tunnel 502s. Check
+with:
+```
+echo | openssl s_client -connect <vip>:443 -servername <host> 2>/dev/null \
+  | openssl x509 -noout -issuer -ext subjectAltName
+```
 
 ---
 
