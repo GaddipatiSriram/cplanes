@@ -30,6 +30,11 @@ data:
       - hostname: {{ .hostname }}
         service: {{ .service }}
         originRequest:
+          # service is dialed by IP (the ingress-nginx VIP). originServerName
+          # makes cloudflared send SNI = the hostname (so ingress-nginx picks
+          # the right cert) AND validate that cert's SAN against the hostname
+          # rather than the IP — the engatwork certs carry DNS SANs only.
+          originServerName: {{ .hostname }}
           httpHostHeader: {{ .hostname }}
     {{- end }}
       # Catch-all — anything not matched above (including a stray CNAME) 404s
