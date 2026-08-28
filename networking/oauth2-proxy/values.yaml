@@ -89,6 +89,10 @@ ingress:
     - home.engatwork.com
   annotations:
     cert-manager.io/cluster-issuer: vault-pki
+    # oauth2-proxy's /oauth2/callback Set-Cookie carries the full Keycloak
+    # session (access+id+refresh tokens + groups) — well over nginx's default
+    # 4-8k proxy buffer -> "upstream sent too big header" -> 502. Bump it.
+    nginx.ingress.kubernetes.io/proxy-buffer-size: "32k"
   tls:
     enabled: true
     secretName: home-tls

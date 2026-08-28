@@ -52,6 +52,9 @@ ingress:
     # Forward identity headers downstream so Homer (or any future replacement)
     # can read the authenticated user.
     nginx.ingress.kubernetes.io/auth-response-headers: "X-Auth-Request-User, X-Auth-Request-Email"
+    # Large auth headers on the subrequest / redirect responses — same reason
+    # as oauth2-proxy's ingress.
+    nginx.ingress.kubernetes.io/proxy-buffer-size: "32k"
   tls:
     enabled: true
     secretName: home-tls
