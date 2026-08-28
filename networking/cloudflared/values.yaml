@@ -119,11 +119,19 @@ ingress:
     service: https://10.10.3.201
   - hostname: sonarqube.apps.mgmt-forge.engatwork.com
     service: https://10.10.5.201
-  # Keycloak — OIDC + login-page assets ONLY, so public apps (home.engatwork.com)
-  # can complete SSO from the internet. /auth/admin and everything else on this
-  # hostname 404s at the tunnel; the full console stays Tier-2 (WARP).
+  # Keycloak — public surface is:
+  #   /auth/realms/engatwork/  OIDC endpoints for internet-facing SSO (home.engatwork.com)
+  #   /auth/realms/master/     login flow backing the admin console
+  #   /auth/admin/             admin console SPA + admin REST API
+  #   /auth/resources/         login-page + console static assets
+  #   /auth/                   bare root (302s to /auth/admin/)
+  # Everything else on this hostname still 404s at the tunnel.
+  # SECURITY: the admin console is now reachable from the internet. It MUST sit
+  # behind a Cloudflare Access app on this hostname (Google zdozisik@gmail.com
+  # only), with a bypass/exclude policy for `^/auth/realms/engatwork/` so
+  # oauth2-proxy's server-side token calls are not intercepted by Access.
   - hostname: keycloak.apps.mgmt-forge.engatwork.com
-    path: '^/auth/(realms/engatwork/|resources/)'
+    path: '^/auth/((admin|realms/(engatwork|master))(/|$)|resources/|$)'
     service: https://10.10.5.201
   - hostname: keycloak.apps.mgmt-forge.engatwork.com
     service: http_status:404
