@@ -42,7 +42,11 @@ oauth2-proxy:
     # Certificate CR + valid ClusterIssuer). Today the ingress presents
     # the default ingress.local cert.
     ssl-insecure-skip-verify: "true"
-    redirect-url: "https://home.apps.mgmt-control.engatwork.com/oauth2/callback"
+    # redirect-url intentionally unset — with reverse-proxy=true oauth2-proxy
+    # builds the callback from the request's X-Forwarded-Proto/Host, so the
+    # same deployment serves both home.apps.mgmt-control.engatwork.com and
+    # home.engatwork.com. Keycloak's apps-launcher client whitelists both.
+    whitelist-domain: ".engatwork.com"
     # Allow any email — the realm itself gates who can log in. We're not using
     # email-domain filtering as a second layer.
     email-domain: "*"
@@ -55,8 +59,9 @@ oauth2-proxy:
     pass-authorization-header: "true"
     # Path prefix matches the Ingress path below.
     proxy-prefix: "/oauth2"
-    # Session cookie domain — restrict to the launcher host.
-    cookie-domain: "home.apps.mgmt-control.engatwork.com"
+    # Session cookie domain — .engatwork.com so one login covers both the
+    # canonical host and the home.engatwork.com shortcut.
+    cookie-domain: ".engatwork.com"
     cookie-secure: "true"
     # Skip Keycloak's auto-discovery for non-issuer fields where it differs
     # from spec (Keycloak emits standard OIDC discovery, so usually fine).
@@ -79,7 +84,9 @@ oauth2-proxy:
 ingress:
   enabled: true
   className: nginx
-  host: home.apps.mgmt-control.engatwork.com
+  hosts:
+    - home.apps.mgmt-control.engatwork.com
+    - home.engatwork.com
   annotations:
     cert-manager.io/cluster-issuer: vault-pki
   tls:

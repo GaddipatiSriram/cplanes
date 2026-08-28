@@ -103,6 +103,12 @@ caBundle: |
 ingress:
   - hostname: home.apps.mgmt-control.engatwork.com
     service: https://10.10.2.200
+  # Short public shortcut for Homer (1-label -> free Universal SSL at the
+  # edge, no ACM). Routed to the same ingress; Host header + SNI are
+  # home.engatwork.com, which the Homer + oauth2-proxy ingresses now accept
+  # and cert-manager covers in home-tls.
+  - hostname: home.engatwork.com
+    service: https://10.10.2.200
   - hostname: workflows.apps.mgmt-control.engatwork.com
     service: https://10.10.2.200
   - hostname: backstage.apps.mgmt-control.engatwork.com

@@ -32,7 +32,9 @@ service:
 ingress:
   enabled: true
   className: nginx
-  host: home.apps.mgmt-control.engatwork.com
+  hosts:
+    - home.apps.mgmt-control.engatwork.com
+    - home.engatwork.com
   annotations:
     cert-manager.io/cluster-issuer: vault-pki
     # Auth subrequest — internal Service URL, NOT the public hostname.
@@ -46,7 +48,7 @@ ingress:
     # On 401, redirect the browser to /oauth2/start, which begins the OIDC
     # dance with Keycloak and lands back at /oauth2/callback. $escaped_request_uri
     # is the original URL so the user lands where they intended after login.
-    nginx.ingress.kubernetes.io/auth-signin: "https://home.apps.mgmt-control.engatwork.com/oauth2/start?rd=$escaped_request_uri"
+    nginx.ingress.kubernetes.io/auth-signin: "https://$host/oauth2/start?rd=$escaped_request_uri"
     # Forward identity headers downstream so Homer (or any future replacement)
     # can read the authenticated user.
     nginx.ingress.kubernetes.io/auth-response-headers: "X-Auth-Request-User, X-Auth-Request-Email"

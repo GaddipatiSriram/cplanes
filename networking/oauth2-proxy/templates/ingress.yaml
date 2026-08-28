@@ -19,11 +19,14 @@ spec:
   {{- if .Values.ingress.tls.enabled }}
   tls:
     - hosts:
-        - {{ .Values.ingress.host | quote }}
+        {{- range .Values.ingress.hosts }}
+        - {{ . | quote }}
+        {{- end }}
       secretName: {{ .Values.ingress.tls.secretName | quote }}
   {{- end }}
   rules:
-    - host: {{ .Values.ingress.host | quote }}
+    {{- range .Values.ingress.hosts }}
+    - host: {{ . | quote }}
       http:
         paths:
           - path: /oauth2
@@ -33,4 +36,5 @@ spec:
                 name: oauth2-proxy
                 port:
                   number: 80
+    {{- end }}
 {{- end }}

@@ -110,10 +110,15 @@ clients:
     accessType: CONFIDENTIAL
     rootUrl: "https://home.apps.mgmt-control.engatwork.com"
     baseUrl: "/"
+    # Two public hostnames both front Homer via this one client:
+    #   home.apps.mgmt-control.engatwork.com  (canonical, internal + tunnel)
+    #   home.engatwork.com                    (short public shortcut, tunnel)
     validRedirectUris:
       - "https://home.apps.mgmt-control.engatwork.com/oauth2/callback"
+      - "https://home.engatwork.com/oauth2/callback"
     webOrigins:
       - "https://home.apps.mgmt-control.engatwork.com"
+      - "https://home.engatwork.com"
     extraDefaultScopes:
       - groups
 
